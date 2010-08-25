@@ -32,6 +32,15 @@
 		   (range 1 101 1)
 		   10))))
 
+(deftest do-work-test
+  (let [response-q (work/local-queue)
+	pool (work/do-work #(work/offer response-q (* 10 %))
+		   (range 1 101 1)
+		   10)
+	_ (Thread/sleep 2000)]
+  (is (= (range 10 1010 10)
+	 (sort (iterator-seq (.iterator response-q)))))))
+
 ;;TODO: these sleeps are shit.  Figure out a way to refactor to make the workers blockable for testing.
 
 (deftest queue-work-test
@@ -60,9 +69,9 @@
 	       #(work/poll request-q)
 	       #(work/offer response-q %) 
 	       10))
-	_ (Thread/sleep 5000)]
+	_ (Thread/sleep 6000)]
     (is (= (range 10 1010 10)
-	   (iterator-seq (.iterator response-q))))))
+	   (sort (iterator-seq (.iterator response-q)))))))
 
 (deftest json-fns-over-the-queue
   (let [request-q (work/local-queue (map #(work/send-json %1 %2)
@@ -77,4 +86,4 @@
 	       10))
 	_ (Thread/sleep 6000)]
     (is (= (range 10 1010 10)
-	   (iterator-seq (.iterator response-q))))))
+	   (sort (iterator-seq (.iterator response-q)))))))

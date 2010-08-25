@@ -80,6 +80,17 @@
 [f xs threads]
   (work (doall (map (fn [x] #(f x)) xs)) threads))
 
+(defn do-work
+"like clojure's dorun, for side effects only, but takes a number of threads."
+  [#^java.lang.Runnable f xs threads]
+  (let [pool (Executors/newFixedThreadPool threads)
+	_ (doall (map
+		  (fn [x]
+		    (let [#^java.lang.Runnable fx #(f x)]
+		    (.submit pool fx)))
+		    xs))]
+	pool))
+
 (defn local-queue
   ([]
      (LinkedBlockingQueue.))
