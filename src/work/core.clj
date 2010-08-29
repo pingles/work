@@ -80,6 +80,16 @@
 [f xs threads]
   (work (doall (map (fn [x] #(f x)) xs)) threads))
 
+(defn filter-work
+  [f xs threads]
+  (filter identity
+	  (map-work
+	   (fn [x]
+	     (if (f x)
+	       x
+	       nil))
+	   xs threads)))
+
 (defn do-work
 "like clojure's dorun, for side effects only, but takes a number of threads."
   [#^java.lang.Runnable f xs threads]
