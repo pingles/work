@@ -26,6 +26,12 @@
   (is (= 6
 	 (eval (work/recieve-json (work/send-json #'add 1 2 3))))))
 
+(deftest local-queue-test
+  (let [q (work/local-queue ["a"])
+	_ (work/offer q "b")
+	_ (work/offer-unique q "a")]
+    (is (= 2 (work/size q)))))
+
 (deftest map-work-test
   (is (= (range 10 1010 10)
 	 (work/map-work #(* 10 %)
