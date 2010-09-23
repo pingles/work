@@ -3,7 +3,8 @@
 	    Executors ExecutorService TimeUnit
 	    LinkedBlockingQueue ConcurrentHashMap))
   (:import clojure.lang.RT)
-  (:use clj-serializer.core)
+  (:use clj-serializer.core
+	work.cache)
   (:require [clj-json [core :as json]]))
 
 (defn from-var [#^Var fn-var]
@@ -126,27 +127,6 @@
 (defn peek [q] (.peek q))
 (defn poll [q] (.poll q))
 (defn size [q] (.size q))
-
-(defn local-map
-  ([]
-     (ConcurrentHashMap.))
-  ([xs]
-     (ConcurrentHashMap. xs)))
-
-(defn put [m k v]
-  (.put m k v))
-
-(defn put-all [m n]
-  (.putAll m n))
-
-(defn contains-key? [m k]
-  (.containsKey m k))
-
-(defn contains-val? [m v]
-  (.containsValue m v))
-
-(defn new-keys [m ks]
-  (filter #(not (contains-key? m %)) ks))
 
 ;;TODO; unable to shutdown pool. seems recursive fns are not responding to interrupt. http://download.oracle.com/javase/tutorial/essential/concurrency/interrupt.html
 ;;TODO: use another thread to check futures and make sure workers don't fail, don't hang, and call for work within their time limit?
