@@ -29,9 +29,10 @@
 
 (defn put-exp
   "behaves like normal put if there is not expire time, otherwise, it will schedule the element of the map to be deleted once the time expires."
-  [m k v & exp]
+  [m k v & args]
+  (let [exp (first args)]
   (.put m k (if (not exp) v
-		{:at (time/now) :exp exp :val v})))
+		{:at (time/now) :exp exp :val v}))))
 
 (defmacro only [bindings]
   `(let [bdg# (map (fn [bind#] (if (not (= "_" (name bind#)))
