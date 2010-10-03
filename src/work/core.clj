@@ -3,8 +3,7 @@
 	    Executors ExecutorService TimeUnit
 	    LinkedBlockingQueue ConcurrentHashMap))
   (:import clojure.lang.RT)
-  (:use clj-serializer.core
-	work.cache)
+  (:use clj-serializer.core)
   (:require [clj-json [core :as json]]))
 
 (defn from-var [#^Var fn-var]
