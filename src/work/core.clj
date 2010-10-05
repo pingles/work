@@ -132,17 +132,23 @@
 (defn queue-work
 "schedule-work one worker function f per thread.  f can either be a fn that is directly applied to each task (all workers use the same fn) or f builds and evals a worker from a fn & args passed over the queue (each worker executes an arbitrary fn.)  Examples of the latter are clj-worker and json-wroker.
 
-Each worker fn polls the work queue via get-work fn, applies a fn to each dequeued item, puts the result with put-done and recursively checks for more work.  If it doesn't find new work, it waits until checking for more work."
-[f get-work put-done threads]
-  (let [pool (Executors/newFixedThreadPool threads)
-	fns (repeatedly threads
-			(fn [] (do
-				 (if-let [task (get-work)]
-				   (put-done (f task))
-				   (Thread/sleep 5000))
-				 (recur))))
-	futures (doall (map #(.submit pool %) fns))]
-    pool))
+Each worker fn polls the work queue via get-work fn, applies a fn to each dequeued item, puts the result with put-done and recursively checks for more work.  If it doesn't find new work, it waits until checking for more work.
+
+The workers can run in asynchronous mode, where the put-done function is passed to the worker function f, and f is responsible for ensuring that put-done is appropriately called.  Valid values for mode are :sync or :async.  If a mode is not specified, queue-work defaults to :sync."
+([f get-work put-done threads]
+   (queue-work f get-work put-done threads :sync))
+([f get-work put-done threads mode]
+   (let [pool (Executors/newFixedThreadPool threads)
+         fns (repeatedly threads
+                         (fn [] (do
+                                  (if-let [task (get-work)]
+                                    (if (= :async mode)
+                                      (f task put-done)
+                                      (put-done (f task)))
+                                    (Thread/sleep 5000))
+                                  (recur))))
+         futures (doall (map #(.submit pool %) fns))]
+     pool)))
 
 (defn shutdown
   "Initiates an orderly shutdown in which previously submitted tasks are executed, but no new tasks will be accepted. Invocation has no additional effect if already shut down."
