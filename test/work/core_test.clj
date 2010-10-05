@@ -75,7 +75,7 @@
 	       #(work/poll request-q)
 	       #(work/offer response-q %) 
 	       10))
-	_ (Thread/sleep 6000)]
+	_ (Thread/sleep 8000)]
     (is (= (range 10 1010 10)
 	   (sort (iterator-seq (.iterator response-q)))))))
 
