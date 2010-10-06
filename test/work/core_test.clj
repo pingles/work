@@ -60,7 +60,22 @@
 	       10))
 	_ (Thread/sleep 1000)]
   (is (= (range 10 1010 10)
-	 (iterator-seq (.iterator response-q))))))
+         (iterator-seq (.iterator response-q))))))
+
+(deftest async-queue-work-test
+  (let [request-q (work/local-queue (range 1 101 1))
+        response-q (work/local-queue)
+        pool (future
+              (work/queue-work
+               (fn [task put-done]
+                 (put-done (* 10 task)))
+               #(work/poll request-q)
+               #(work/offer response-q %)
+               10
+               :async))
+        _ (Thread/sleep 1000)]
+    (is (= (range 10 1010 10)
+           (iterator-seq (.iterator response-q))))))
 
 (defn times10 [x] (* 10 x))
 
@@ -75,7 +90,7 @@
 	       #(work/poll request-q)
 	       #(work/offer response-q %) 
 	       10))
-	_ (Thread/sleep 6000)]
+	_ (Thread/sleep 8000)]
     (is (= (range 10 1010 10)
 	   (sort (iterator-seq (.iterator response-q)))))))
 
