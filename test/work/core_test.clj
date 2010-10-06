@@ -60,7 +60,7 @@
 	       10))
 	_ (Thread/sleep 1000)]
   (is (= (range 10 1010 10)
-         (iterator-seq (.iterator response-q))))))
+         (sort (iterator-seq (.iterator response-q)))))))
 
 (deftest async-queue-work-test
   (let [request-q (work/local-queue (range 1 101 1))
@@ -75,7 +75,7 @@
                :async))
         _ (Thread/sleep 1000)]
     (is (= (range 10 1010 10)
-           (iterator-seq (.iterator response-q))))))
+           (sort (iterator-seq (.iterator response-q)))))))
 
 (defn times10 [x] (* 10 x))
 
