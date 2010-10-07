@@ -1,4 +1,5 @@
 (ns work.cache
+  (:refer-clojure :exclude [get])
   (:require [clj-time.core :as time])
   (:import (java.util.concurrent
 	    ConcurrentHashMap)))

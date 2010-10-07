@@ -1,4 +1,5 @@
 (ns work.core
+  (:refer-clojure :exclude [peek])
   (:import (java.util.concurrent
 	    Executors ExecutorService TimeUnit
 	    LinkedBlockingQueue ConcurrentHashMap))
