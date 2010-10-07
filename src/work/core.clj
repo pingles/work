@@ -139,7 +139,7 @@ The workers can run in asynchronous mode, where the put-done function is passed 
    (queue-work f get-work put-done threads :sync))
 ([f get-work put-done threads mode]
    (let [pool (Executors/newFixedThreadPool threads)
-         fns (repeatedly threads
+         fns (repeat threads
                          (fn [] (do
                                   (if-let [task (get-work)]
                                     (if (= :async mode)
