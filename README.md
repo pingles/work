@@ -93,6 +93,23 @@ Note that we just inject work/clj-worker - which knows how to get the serialized
 
 Note that almost nothing has changed.  We just create our messages using work/send-json rather than work/send-clj, and we pass work/json-worker rather than work/clj-worker as the worker constructor to the queue-work function.
 
+Here's a simple fetcher:
+
+       (defn fetcher [conf cred]
+         (let [q (sqs/connect (merge conf cred))
+	 s (s3/s3-connection cred)
+	 	done (:done conf)
+	pool (future
+	      (work/queue-work
+	       (sqs/with-msg (comp :body http/get))
+	       #(sqs/receive-msg q)
+	       (fn [[[id handle body] result]]
+		 (do 
+		   (s3/put-str s done body result)
+		   (sqs/delete-message q handle)))
+	       100))]
+    	       pool))
+
 work can schedule work as well.
 
     user> (require '[work.core :as work])

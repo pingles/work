@@ -6,5 +6,5 @@
 		 [clj-serializer "0.1.0"]
 		 [clj-time "0.1.0-RC1"]
 		 [clj-json "0.3.0-SNAPSHOT"]]
-  :dev-dependencies [[swank-clojure "1.2.1"]
+  :dev-dependencies [[swank-clojure "1.3.0-SNAPSHOT"]
 		     [lein-clojars "0.5.0"]])
