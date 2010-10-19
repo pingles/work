@@ -55,22 +55,24 @@
   ([m f expire cache-on]
      (fn [& args]
        (let [cache-args (cache-on args) 
-	     cached (contains-key? m cache-args)
-	     expires? (not (= :never expire))]
-	 (cond
-	  (and cached expires?)
-	  (let [{at :at  exp :exp v :val} (get m cache-args)]
-	    (if (> (time/in-secs (time/interval at (time/now))) exp)
-	      (let [res (apply f args)
-	 	    _ (put-exp m cache-args res expire)]
-	 	res)
-	      v))
-	  cached (get m cache-args)
-	  (and (not cached) expires?)
-	  (let [res (apply f args)
-	 	_ (put-exp m cache-args res expire)]
-	    res)
-	  :else
-	  (let [res (apply f args)
-	 	_ (put m cache-args res)]
-	    res))))))
+             cached (contains-key? m cache-args)
+             expires? (not (= :never expire))]
+         (cond
+          (and cached expires?)
+          (let [{at :at  exp :exp v :val} (get m cache-args)]
+            (if (> (time/in-secs (time/interval at (time/now))) exp)
+              (let [res (apply f args)
+                    _ (put-exp m cache-args res expire)]
+                res)
+              v))
+          cached (get m cache-args)
+          (and (not cached) expires?)
+          (let [res (apply f args)
+                _ (put-exp m cache-args res expire)]
+            res)
+          :else
+          (let [res (apply f args)]
+            ;; Ensure both the args and result or not nil
+            (when (and cache-args res)
+              (put m cache-args res))
+            res))))))
