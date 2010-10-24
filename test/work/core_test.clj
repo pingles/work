@@ -38,45 +38,51 @@
 		   (range 1 101 1)
 		   10))))
 
-(deftest do-work-test
-  (let [response-q (work/local-queue)
-	pool (work/do-work #(work/offer response-q (* 10 %))
-		   (range 1 101 1)
-		   10)
-	_ (Thread/sleep 2000)]
-  (is (= (range 10 1010 10)
-	 (sort (iterator-seq (.iterator response-q)))))))
+(defn wait-for-complete-results
+  "Test helper fn waits until the pool finishes processing before returning results."
+  [response-q expected-seq-size]
+  (while (< (.size response-q) expected-seq-size)
+    (Thread/sleep 100))
+  (sort (iterator-seq (.iterator response-q))))
 
-;;TODO: these sleeps are shit.  Figure out a way to refactor to make the workers blockable for testing.
+(deftest do-work-test
+  (let [input-data (range 1 101 1)
+	response-q (work/local-queue)
+	pool (work/do-work #(work/offer response-q (* 10 %))
+		   input-data
+		   10)]
+  (is (= (range 10 1010 10)
+	 (wait-for-complete-results response-q (count input-data))))))
 
 (deftest queue-work-test
-  (let [request-q (work/local-queue (range 1 101 1))
+  (let [input-data (range 1 101 1)
+	request-q (work/local-queue input-data)
 	response-q (work/local-queue)
 	pool (future
 	      (work/queue-work
 	       #(* 10 %)
 	       #(work/poll request-q)
 	       #(work/offer response-q %)
-	       10))
-	_ (Thread/sleep 1000)]
+	       10))]
   (is (= (range 10 1010 10)
-         (sort (iterator-seq (.iterator response-q)))))))
+         (wait-for-complete-results response-q (count input-data))))))
 
 (deftest blocking-queue-work-test
-  (let [request-q (work/local-queue (range 1 21 1))
+  (let [input-data (range 1 21 1)
+	request-q (work/local-queue input-data)
 	response-q (work/local-queue)
 	pool (future
 	      (work/queue-work
 	       #(do (Thread/sleep 1000) (* 10 %))
 	       #(work/poll request-q)
 	       #(work/offer response-q %)
-	       10))
-	_ (Thread/sleep 3000)]
+	       10))]
   (is (= (range 10 210 10)
-         (sort (iterator-seq (.iterator response-q)))))))
+         (wait-for-complete-results response-q (count input-data))))))
 
 (deftest async-queue-work-test
-  (let [request-q (work/local-queue (range 1 101 1))
+  (let [input-data (range 1 101 1)
+	request-q (work/local-queue input-data)
         response-q (work/local-queue)
         pool (future
               (work/queue-work
@@ -85,13 +91,13 @@
                #(work/poll request-q)
                #(work/offer response-q %)
                10
-               :async))
-        _ (Thread/sleep 1000)]
+               :async))]
     (is (= (range 10 1010 10)
-           (sort (iterator-seq (.iterator response-q)))))))
+           (wait-for-complete-results response-q (count input-data))))))
 
 (deftest aysnc-blocking-queue-work-test
-  (let [request-q (work/local-queue (range 1 21 1))
+  (let [input-data (range 1 21 1)
+	request-q (work/local-queue input-data)
 	response-q (work/local-queue)
 	pool (future
 	      (work/queue-work
@@ -101,39 +107,38 @@
 	       #(work/poll request-q)
 	       #(work/offer response-q %)
 	       10
-           :async))
-	_ (Thread/sleep 3000)]
+           :async))]
   (is (= (range 10 210 10)
-         (sort (iterator-seq (.iterator response-q)))))))
+         (wait-for-complete-results response-q (count input-data))))))
 
 (defn times10 [x] (* 10 x))
 
 (deftest clj-fns-over-the-queue
-  (let [request-q (work/local-queue (map #(work/send-clj %1 %2)
+  (let [input-data (range 1 101 1)
+	request-q (work/local-queue (map #(work/send-clj %1 %2)
 					 (repeat #'times10)
-					 (range 1 101 1)))
+					 input-data))
 	response-q (work/local-queue)
 	pool (future
 	      (work/queue-work
 	       work/clj-worker
 	       #(work/poll request-q)
 	       #(work/offer response-q %) 
-	       10))
-	_ (Thread/sleep 10000)]
+	       10))]
     (is (= (range 10 1010 10)
-	   (sort (iterator-seq (.iterator response-q)))))))
+	   (wait-for-complete-results response-q (count input-data))))))
 
 (deftest json-fns-over-the-queue
-  (let [request-q (work/local-queue (map #(work/send-json %1 %2)
+  (let [input-data (range 1 101 1)
+	request-q (work/local-queue (map #(work/send-json %1 %2)
 					 (repeat #'times10)
-					 (range 1 101 1)))
+					 input-data))
 	response-q (work/local-queue)
 	pool (future
 	      (work/queue-work
 	       work/json-worker
 	       #(work/poll request-q)
 	       #(work/offer response-q %) 
-	       10))
-	_ (Thread/sleep 8000)]
+	       10))]
     (is (= (range 10 1010 10)
-	   (sort (iterator-seq (.iterator response-q)))))))
+	   (wait-for-complete-results response-q (count input-data))))))
