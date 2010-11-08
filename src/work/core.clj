@@ -142,10 +142,17 @@
 
   The workers can run in asynchronous mode, where the put-done function is passed to the worker function f,
   and f is responsible for ensuring that put-done is appropriately called.
-  Valid values for mode are :sync or :async.  If a mode is not specified, queue-work defaults to :sync."
+  Valid values for mode are :sync or :async.  If a mode is not specified, queue-work defaults to :sync.
+
+  An error-handler may be provided and should expect three arguments: an error type, the exception, and a third argument
+  that is dependent on the error type.  The error types are :work and :get and respectively correspond to an error when
+  running the work function or while getting more work.  The third argument for a :work error will be the failed task
+  and for a :get error it will be nil."
   ([f get-work put-done threads]
-     (queue-work f get-work put-done threads :sync))
+     (queue-work f get-work put-done threads :sync nil))
   ([f get-work put-done threads mode]
+     (queue-work f get-work put-done threads mode nil))
+  ([f get-work put-done threads mode error-handler]
      (let [put-done (if (fn? put-done)
                       put-done
                       (fn [k & args]
@@ -153,10 +160,17 @@
            pool (Executors/newFixedThreadPool threads)
            fns (repeat threads
                        (fn [] (do
-                                (if-let [task (get-work)]
-                                  (if (= :async mode)
-                                    (f task put-done)
-                                    (put-done (f task)))
+                                (if-let [task (try (get-work)
+                                                   (catch Exception e
+                                                     (when error-handler
+                                                       (error-handler :get e nil))))]
+                                  (try
+                                    (if (= :async mode)
+                                      (f task put-done)
+                                      (put-done (f task)))
+                                    (catch Exception e
+                                      (when error-handler
+                                        (error-handler :work e task))))
                                   (Thread/sleep 5000))
                                 (recur))))
            futures (doall (map #(.submit pool %) fns))]
