@@ -1,11 +1,12 @@
 (ns work.core
   (:refer-clojure :exclude [peek])
+  (:require [clj-json [core :as json]]
+            [clojure.contrib.logging :as log])
+  (:use clj-serializer.core)
   (:import (java.util.concurrent
             Executors ExecutorService TimeUnit
-            LinkedBlockingQueue ConcurrentHashMap))
-  (:import clojure.lang.RT)
-  (:use clj-serializer.core)
-  (:require [clj-json [core :as json]]))
+            LinkedBlockingQueue ConcurrentHashMap)
+           clojure.lang.RT))
 
 (defn from-var [#^Var fn-var]
   (let [m (meta fn-var)]
