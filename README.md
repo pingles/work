@@ -143,8 +143,7 @@ Pick your queue.  work is not coupled to any particular distribution mechanism. 
 
 Be aware that when you start work server JVMs, you should be mindful of tuning parameters.  You probably don't need to get to crazy, but you should at least use the -server option.  Depending on your threads-to-logical-processors ratio, you might also want to adjust stack size to avoid excessive context switching.  You might also want to explore other HotSpot VM options, like -XX:-UseSpinning and -XX:-UseParallelGC.
 
----
-
+___
 YourKit is kindly supporting open source projects with its full-featured Java Profiler.
 YourKit, LLC is the creator of innovative and intelligent tools for profiling
 Java and .NET applications. Take a look at YourKit's leading software products:
