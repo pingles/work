@@ -2,59 +2,80 @@
   (:refer-clojure :exclude [peek])
   (:require [clj-json [core :as json]]
             [clojure.contrib.logging :as log])
-  (:use clj-serializer.core)
+  (:use clj-serializer.core
+	[clojure.contrib.def :only [defvar]]
+	[plumbing.core :only [try-silent retry]])
   (:import (java.util.concurrent
             Executors ExecutorService TimeUnit
             LinkedBlockingQueue ConcurrentHashMap)
            clojure.lang.RT))
 
-(defn from-var [#^Var fn-var]
+(defn from-var
+  "convert fn variable to [ns-name fn-name] string pair"
+  [^Var fn-var]
   (let [m (meta fn-var)]
     [(str (:ns m)) (str (:name m))]))
 
-(defn to-var [#^String ns-name #^String fn-name]
-  (let [root (.replace 
-              (.replace ns-name "-", "_")
-              "." "/")]
-    (do 
-      (try (RT/load root)
-           (catch Exception _ _))
-      (.deref (RT/var ns-name, fn-name)))))
+(defn to-var
+  "find variable named by [ns-name fn-name] strings"
+  [^String ns-name ^String fn-name]
+  (let [root (-> ns-name
+		 (.replace "-" "_")
+		 (.replace "." "/"))]
+    (try-silent (RT/load root))
+    (.deref (RT/var ns-name, fn-name))))
 
-(defn- recieve* [msg]
+(defn- recieve*
+  "msg should take form [[ns-name fn-name] args]
+   and return a list which when eval'd represents
+   executing fn on args" 
+  [msg]
   (let [[[ns-name fn-name] & args] msg]
     (cons (to-var ns-name fn-name) args)))
 
-(defn recieve-clj [msg]
-  (recieve* (deserialize (.getBytes msg) (Object.))))
+(defn recieve-clj
+  "receive* message represented as a serialized
+   clojure data object"
+  [msg]
+  (recieve* (deserialize (.getBytes msg) :eof)))
 
-(defn recieve-json [msg]
+(defn recieve-json
+  "receive* message presented as a json string"
+  [msg]
   (recieve* (json/parse-string msg)))
 
-(def clj-worker (comp eval recieve-clj))
+(defvar clj-worker
+  (comp eval recieve-clj)
+  "evaluate msg represented by serialized clojure object")
 
-(def json-worker (comp eval recieve-json))
+(defvar json-worker
+  (comp eval recieve-json)
+  "evaluate msg represented by json string")
 
-(defn send-clj [fn-var & args]
-  (String. (serialize (cons (from-var fn-var) args))))
+(defn send-clj
+  "convert fn evaluation to String representing
+   function evaluation as a clojure object message"
+  [fn-var & args]
+  (-> fn-var
+      from-var
+      (cons args)
+      serialize
+      String.))
 
-(defn send-json [fn-var & args]
-  (json/generate-string (cons (from-var fn-var) args)))
+(defn send-json
+  "convert fn evaluation to String json representation"
+  [fn-var & args]
+  (-> fn-var
+      from-var
+      (cons args)
+      json/generate-string))
 
 (defn available-processors []
   (.availableProcessors (Runtime/getRuntime)))
 
-(defn retry [retries f & args]
-  "Retries applying f to args based on the number of retries.
-  catches generic Exception, so if you want to do things with other exceptions, you must do so in the client code inside f."
-  (try (apply f args)
-       (catch java.lang.Exception _
-         (if (> retries 0)
-           (apply retry (- retries 1) f args)
-           {:fail 1}))))
-
 ;;TODO: try within a retry loop?
-(defn try-job [f]
+(defn- try-job
+  [f]
   #(try (f)
         (catch Exception e
           (.printStackTrace e))))
@@ -62,8 +83,8 @@
 (defn schedule-work
   "schedules work. cron for clojure fns. Schedule a single fn with a pool to run every n seconds,
   where n is specified by the rate arg, or supply a vector of fn-rate tuples to schedule a bunch of fns at once."
-  ([pool f rate]
-     (.scheduleAtFixedRate pool (try-job f) 0 rate TimeUnit/SECONDS))
+  ([^ExecutorService pool f rate]
+     (.scheduleAtFixedRate pool (try-job f) (long 0) (long rate) TimeUnit/SECONDS))
   ([jobs]
      (let [pool (Executors/newSingleThreadScheduledExecutor)] 
        (doall (for [[f rate] jobs]
@@ -72,7 +93,7 @@
 (defn- work*
   [fns threads]
   (let [pool (Executors/newFixedThreadPool threads)]
-    (.invokeAll pool fns)))
+    (.invokeAll pool ^java.util.Collection fns)))
 
 (defn work
   "takes a seq of fns executes them in parallel on n threads, blocking until all work is done."
@@ -80,30 +101,40 @@
   (map #(.get %) (work* fns threads)))
 
 (defn map-work
-  "like clojure's map or pmap, but takes a number of threads, executes eagerly, and blocks."
-  [f xs threads]
-  (work (doall (map (fn [x] #(f x)) xs)) threads))
+  "like clojure's map or pmap, but takes a number of threads, executes eagerly, and blocks.
+
+   CHANGE 11/26/2010: num-threads arguments 2nd rather than last arg"
+  [f num-threads xs]  
+  (if (seq? num-threads)    
+    (do (log/warn "map-work arguments have changed, now num-threads is 2nd argument. xs comes last")	
+	(recur f xs num-threads))
+    (work (doall (map (fn [x] #(f x)) xs)) num-threads)))
 
 (defn filter-work
-  [f xs threads]
-  (filter identity
-          (map-work
-           (fn [x]
-             (if (f x)
-               x
-               nil))
-           xs threads)))
+  "use work to perform a filter operation"
+  [f num-threads xs]
+  (if (seq? num-threads)
+    (do (log/warn "filter-work arguments have changed, now num-threads is 2nd argument. xs comes last")	
+	(recur f xs num-threads))
+    (filter identity
+	    (map-work
+	     (fn [x] (if (f x) x nil))	       
+	     num-threads
+	     xs))))
 
 (defn do-work
   "like clojure's dorun, for side effects only, but takes a number of threads."
-  [#^java.lang.Runnable f xs threads]
-  (let [pool (Executors/newFixedThreadPool threads)
-        _ (doall (map
-                  (fn [x]
-                    (let [#^java.lang.Runnable fx #(f x)]
-                      (.submit pool fx)))
-                  xs))]
-	pool))
+  [^java.lang.Runnable f num-threads xs]
+  (if (seq? num-threads)
+    (do (log/warn "do-work arguments have changed, now num-threads is 2nd argument. xs comes last")	
+	(recur f xs num-threads))
+    (let [pool (Executors/newFixedThreadPool num-threads)
+	  _ (doall (map
+		    (fn [x]
+		      (let [#^java.lang.Runnable fx #(f x)]
+			(.submit pool fx)))
+		    xs))]
+      pool)))
 
 (defn local-queue
   ([]
@@ -129,6 +160,21 @@
 (defn peek [q] (.peek q))
 (defn poll [q] (.poll q))
 (defn size [q] (.size q))
+
+(defn mk-async-task [f args put-done]
+  {:f f
+   :args args
+   :put-done put-done})
+
+(defn async-task-worker
+  ([deflt-put-done]
+     (fn [{:as task
+	   :keys [f,args,put-done]
+	   :or {deflt-put-done put-done}} _]
+       (let [res (apply f args)]
+	 (when put-done (put-done res))
+	 res)))
+  ([] (async-task-worker nil)))
 
 ;;TODO; unable to shutdown pool. seems recursive fns are not responding to interrupt. http://download.oracle.com/javase/tutorial/essential/concurrency/interrupt.html
 ;;TODO: use another thread to check futures and make sure workers don't fail, don't hang, and call for work within their time limit?
@@ -177,6 +223,20 @@
            futures (doall (map #(.submit pool %) fns))]
        pool)))
 
+(defn queue-async-work
+  "queue asynchronous work where each task from
+   get-work is assumed to come from mk-async-task
+   which can have a task-specific put-done function."
+  [get-work num-threads &
+   {:keys [default-put-done,error-handler]}]
+  (queue-work
+    (async-task-worker default-put-done)
+    get-work
+    nil
+    num-threads
+    :async
+    error-handler))
+
 (defn shutdown
   "Initiates an orderly shutdown in which previously submitted tasks are executed, but no new tasks will be accepted. Invocation has no additional effect if already shut down."
   [executor]
@@ -193,7 +253,7 @@
   Call shutdown to reject incoming tasks.
   Calling shutdownNow, if necessary, to cancel any lingering tasks.
   From: http://download-llnw.oracle.com/javase/6/docs/api/java/util/concurrent/ExecutorService.html"
-  [#^ExecutorService pool]
+  [^ExecutorService pool]
   (do (.shutdown pool)  ;; Disable new tasks from being submitted
       (try ;; Wait a while for existing tasks to terminate
         (if (not (.awaitTermination pool 60 TimeUnit/SECONDS))

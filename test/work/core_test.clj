@@ -1,14 +1,15 @@
-(ns work.core-test
- (:use clojure.test)
+:(ns work.core-test
+  (:use clojure.test
+	[plumbing.core :only [retry]])
  (:require [work.core :as work]))
 
 (deftest successfull
   (is (= 10
-    (work/retry 5 + 4 6))))
+    (retry 5 + 4 6))))
 
 (deftest failure
-  (is (= {:fail 1}
-    (work/retry 5 / 4 0))))
+  (is (= :fail
+    (retry 5 / 4 0))))
 
 (defn foo [] 1)
 
@@ -142,3 +143,20 @@
 	       10))]
     (is (= (range 10 1010 10)
 	   (wait-for-complete-results response-q (count input-data))))))
+
+(deftest async-task-test
+  (let [num-done (atom 0)
+	done-q (work/local-queue)
+	put-done (fn [x]
+		   (swap! num-done inc)
+		   (.offer done-q x))
+	input-q (work/local-queue (map
+				   (fn [i]
+				     (work/mk-async-task inc [i] put-done))
+				   (range 10)))]
+    (work/queue-async-work
+     #(work/poll input-q)
+     3)
+    (is (= (range 1 11)
+	   (wait-for-complete-results done-q 10)))
+    (is (= 10 @num-done))))
