@@ -1,37 +1,9 @@
-:(ns work.core-test
+(ns work.core-test
   (:use clojure.test
 	[plumbing.core :only [retry]])
- (:require [work.core :as work]))
-
-(deftest successfull
-  (is (= 10
-    (retry 5 + 4 6))))
-
-(deftest failure
-  (is (= :fail
-    (retry 5 / 4 0))))
-
-(defn foo [] 1)
-
-(deftest var-roundtrip
-  (is (= 1
-	 ((apply work/to-var (work/from-var #'foo)))))) 
-
-(defn add [& args] (apply + args))
-
-(deftest send-and-recieve-clj
-  (is (= 6
-	 (eval (work/recieve-clj (work/send-clj #'add 1 2 3))))))
-
-(deftest send-and-recieve-json
-  (is (= 6
-	 (eval (work/recieve-json (work/send-json #'add 1 2 3))))))
-
-(deftest local-queue-test
-  (let [q (work/local-queue ["a"])
-	_ (work/offer q "b")
-	_ (work/offer-unique q "a")]
-    (is (= 2 (work/size q)))))
+ (:require [work.core :as work])
+ (:require [work.message :as msg])
+ (:require [work.queue :as q]))
 
 (deftest map-work-test
   (is (= (range 10 1010 10)
@@ -48,8 +20,8 @@
 
 (deftest do-work-test
   (let [input-data (range 1 101 1)
-	response-q (work/local-queue)
-	pool (work/do-work #(work/offer response-q (* 10 %))
+	response-q (q/local-queue)
+	pool (work/do-work #(q/offer response-q (* 10 %))
 		   input-data
 		   10)]
   (is (= (range 10 1010 10)
@@ -57,40 +29,40 @@
 
 (deftest queue-work-test
   (let [input-data (range 1 101 1)
-	request-q (work/local-queue input-data)
-	response-q (work/local-queue)
+	request-q (q/local-queue input-data)
+	response-q (q/local-queue)
 	pool (future
 	      (work/queue-work
 	       #(* 10 %)
-	       #(work/poll request-q)
-	       #(work/offer response-q %)
+	       #(q/poll request-q)
+	       #(q/offer response-q %)
 	       10))]
   (is (= (range 10 1010 10)
          (wait-for-complete-results response-q (count input-data))))))
 
 (deftest blocking-queue-work-test
   (let [input-data (range 1 21 1)
-	request-q (work/local-queue input-data)
-	response-q (work/local-queue)
+	request-q (q/local-queue input-data)
+	response-q (q/local-queue)
 	pool (future
 	      (work/queue-work
 	       #(do (Thread/sleep 1000) (* 10 %))
-	       #(work/poll request-q)
-	       #(work/offer response-q %)
+	       #(q/poll request-q)
+	       #(q/offer response-q %)
 	       10))]
   (is (= (range 10 210 10)
          (wait-for-complete-results response-q (count input-data))))))
 
 (deftest async-queue-work-test
   (let [input-data (range 1 101 1)
-	request-q (work/local-queue input-data)
-        response-q (work/local-queue)
+	request-q (q/local-queue input-data)
+        response-q (q/local-queue)
         pool (future
               (work/queue-work
                (fn [task put-done]
                  (put-done (* 10 task)))
-               #(work/poll request-q)
-               #(work/offer response-q %)
+               #(q/poll request-q)
+               #(q/offer response-q %)
                10
                :async))]
     (is (= (range 10 1010 10)
@@ -98,15 +70,15 @@
 
 (deftest aysnc-blocking-queue-work-test
   (let [input-data (range 1 21 1)
-	request-q (work/local-queue input-data)
-	response-q (work/local-queue)
+	request-q (q/local-queue input-data)
+	response-q (q/local-queue)
 	pool (future
 	      (work/queue-work
            (fn [task put-done]
 	        (Thread/sleep 1000)
             (put-done (* 10 task)))
-	       #(work/poll request-q)
-	       #(work/offer response-q %)
+	       #(q/poll request-q)
+	       #(q/offer response-q %)
 	       10
            :async))]
   (is (= (range 10 210 10)
@@ -116,46 +88,46 @@
 
 (deftest clj-fns-over-the-queue
   (let [input-data (range 1 101 1)
-	request-q (work/local-queue (map #(work/send-clj %1 %2)
+	request-q (q/local-queue (map #(msg/send-clj %1 %2)
 					 (repeat #'times10)
 					 input-data))
-	response-q (work/local-queue)
+	response-q (q/local-queue)
 	pool (future
 	      (work/queue-work
-	       work/clj-worker
-	       #(work/poll request-q)
-	       #(work/offer response-q %) 
+	       msg/clj-worker
+	       #(q/poll request-q)
+	       #(q/offer response-q %) 
 	       10))]
     (is (= (range 10 1010 10)
 	   (wait-for-complete-results response-q (count input-data))))))
 
 (deftest json-fns-over-the-queue
   (let [input-data (range 1 101 1)
-	request-q (work/local-queue (map #(work/send-json %1 %2)
+	request-q (q/local-queue (map #(msg/send-json %1 %2)
 					 (repeat #'times10)
 					 input-data))
-	response-q (work/local-queue)
+	response-q (q/local-queue)
 	pool (future
 	      (work/queue-work
-	       work/json-worker
-	       #(work/poll request-q)
-	       #(work/offer response-q %) 
+	       msg/json-worker
+	       #(q/poll request-q)
+	       #(q/offer response-q %) 
 	       10))]
     (is (= (range 10 1010 10)
 	   (wait-for-complete-results response-q (count input-data))))))
 
 (deftest async-task-test
   (let [num-done (atom 0)
-	done-q (work/local-queue)
+	done-q (q/local-queue)
 	put-done (fn [x]
 		   (swap! num-done inc)
 		   (.offer done-q x))
-	input-q (work/local-queue (map
+	input-q (q/local-queue (map
 				   (fn [i]
 				     (work/mk-async-task inc [i] put-done))
 				   (range 10)))]
     (work/queue-async-work
-     #(work/poll input-q)
+     #(q/poll input-q)
      3)
     (is (= (range 1 11)
 	   (wait-for-complete-results done-q 10)))

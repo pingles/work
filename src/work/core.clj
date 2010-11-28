@@ -2,78 +2,20 @@
   (:refer-clojure :exclude [peek])
   (:require [clj-json [core :as json]]
             [clojure.contrib.logging :as log])
-  (:use clj-serializer.core
+  (:use work.queue
+	work.message
+	clj-serializer.core
 	[clojure.contrib.def :only [defvar]]
 	[plumbing.core :only [try-silent retry]])
   (:import (java.util.concurrent
             Executors ExecutorService TimeUnit
-            LinkedBlockingQueue ConcurrentHashMap)
+            LinkedBlockingQueue)
            clojure.lang.RT))
-
-(defn from-var
-  "convert fn variable to [ns-name fn-name] string pair"
-  [^Var fn-var]
-  (let [m (meta fn-var)]
-    [(str (:ns m)) (str (:name m))]))
-
-(defn to-var
-  "find variable named by [ns-name fn-name] strings"
-  [^String ns-name ^String fn-name]
-  (let [root (-> ns-name
-		 (.replace "-" "_")
-		 (.replace "." "/"))]
-    (try-silent (RT/load root))
-    (.deref (RT/var ns-name, fn-name))))
-
-(defn- recieve*
-  "msg should take form [[ns-name fn-name] args]
-   and return a list which when eval'd represents
-   executing fn on args" 
-  [msg]
-  (let [[[ns-name fn-name] & args] msg]
-    (cons (to-var ns-name fn-name) args)))
-
-(defn recieve-clj
-  "receive* message represented as a serialized
-   clojure data object"
-  [msg]
-  (recieve* (deserialize (.getBytes msg) :eof)))
-
-(defn recieve-json
-  "receive* message presented as a json string"
-  [msg]
-  (recieve* (json/parse-string msg)))
-
-(defvar clj-worker
-  (comp eval recieve-clj)
-  "evaluate msg represented by serialized clojure object")
-
-(defvar json-worker
-  (comp eval recieve-json)
-  "evaluate msg represented by json string")
-
-(defn send-clj
-  "convert fn evaluation to String representing
-   function evaluation as a clojure object message"
-  [fn-var & args]
-  (-> fn-var
-      from-var
-      (cons args)
-      serialize
-      String.))
-
-(defn send-json
-  "convert fn evaluation to String json representation"
-  [fn-var & args]
-  (-> fn-var
-      from-var
-      (cons args)
-      json/generate-string))
 
 (defn available-processors []
   (.availableProcessors (Runtime/getRuntime)))
 
-;;TODO: try within a retry loop?
+;;TODO: move out to plumbing, should be retry, catching, logging, and timeouts.
 (defn- try-job
   [f]
   #(try (f)
@@ -84,7 +26,8 @@
   "schedules work. cron for clojure fns. Schedule a single fn with a pool to run every n seconds,
   where n is specified by the rate arg, or supply a vector of fn-rate tuples to schedule a bunch of fns at once."
   ([^ExecutorService pool f rate]
-     (.scheduleAtFixedRate pool (try-job f) (long 0) (long rate) TimeUnit/SECONDS))
+     (.scheduleAtFixedRate
+      pool (try-job f) (long 0) (long rate) TimeUnit/SECONDS))
   ([jobs]
      (let [pool (Executors/newSingleThreadScheduledExecutor)] 
        (doall (for [[f rate] jobs]
@@ -135,31 +78,6 @@
 			(.submit pool fx)))
 		    xs))]
       pool)))
-
-(defn local-queue
-  ([]
-     (LinkedBlockingQueue.))
-  ([xs]
-     (LinkedBlockingQueue. xs)))
-
-(defn offer [q v] (.offer q v))
-
-(defn offer-all [q vs]
-  (doseq [v vs]
-    (offer q v)))
-
-(defn offer-unique
-  [q v]
-  (if (not (.contains q v))
-    (.offer q v)))
-
-(defn offer-all-unique [q vs]
-  (doseq [v vs]
-    (offer-unique q v)))
-
-(defn peek [q] (.peek q))
-(defn poll [q] (.poll q))
-(defn size [q] (.size q))
 
 (defn mk-async-task [f args put-done]
   {:f f
