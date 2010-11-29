@@ -6,7 +6,7 @@
 	work.message
 	clj-serializer.core
 	[clojure.contrib.def :only [defvar]]
-	[plumbing.core :only [try-silent retry]])
+	[plumbing.core :only [print-all with-ex with-log]])
   (:import (java.util.concurrent
             Executors ExecutorService TimeUnit
             LinkedBlockingQueue)
@@ -15,19 +15,12 @@
 (defn available-processors []
   (.availableProcessors (Runtime/getRuntime)))
 
-;;TODO: move out to plumbing, should be retry, catching, logging, and timeouts.
-(defn- try-job
-  [f]
-  #(try (f)
-        (catch Exception e
-          (.printStackTrace e))))
-
 (defn schedule-work
   "schedules work. cron for clojure fns. Schedule a single fn with a pool to run every n seconds,
   where n is specified by the rate arg, or supply a vector of fn-rate tuples to schedule a bunch of fns at once."
   ([^ExecutorService pool f rate]
      (.scheduleAtFixedRate
-      pool (try-job f) (long 0) (long rate) TimeUnit/SECONDS))
+      pool (with-log f) (long 0) (long rate) TimeUnit/SECONDS))
   ([jobs]
      (let [pool (Executors/newSingleThreadScheduledExecutor)] 
        (doall (for [[f rate] jobs]
@@ -74,7 +67,7 @@
     (let [pool (Executors/newFixedThreadPool num-threads)
 	  _ (doall (map
 		    (fn [x]
-		      (let [#^java.lang.Runnable fx #(f x)]
+		      (let [^java.lang.Runnable fx #(f x)]
 			(.submit pool fx)))
 		    xs))]
       pool)))
@@ -109,15 +102,10 @@
   and f is responsible for ensuring that put-done is appropriately called.
   Valid values for mode are :sync or :async.  If a mode is not specified, queue-work defaults to :sync.
 
-  An error-handler may be provided and should expect three arguments: an error type, the exception, and a third argument
-  that is dependent on the error type.  The error types are :work and :get and respectively correspond to an error when
-  running the work function or while getting more work.  The third argument for a :work error will be the failed task
-  and for a :get error it will be nil."
+  All error and fault tolernace should be done by client using plumbing.core."
   ([f get-work put-done threads]
-     (queue-work f get-work put-done threads :sync nil))
+     (queue-work f get-work put-done threads :sync))
   ([f get-work put-done threads mode]
-     (queue-work f get-work put-done threads mode nil))
-  ([f get-work put-done threads mode error-handler]
      (let [put-done (if (fn? put-done)
                       put-done
                       (fn [k & args]
@@ -125,17 +113,10 @@
            pool (Executors/newFixedThreadPool threads)
            fns (repeat threads
                        (fn [] (do
-                                (if-let [task (try (get-work)
-                                                   (catch Exception e
-                                                     (when error-handler
-                                                       (error-handler :get e nil))))]
-                                  (try
-                                    (if (= :async mode)
+                                (if-let [task (get-work)]
+				  (if (= :async mode)
                                       (f task put-done)
                                       (put-done (f task)))
-                                    (catch Exception e
-                                      (when error-handler
-                                        (error-handler :work e task))))
                                   (Thread/sleep 5000))
                                 (recur))))
            futures (doall (map #(.submit pool %) fns))]
@@ -146,14 +127,19 @@
    get-work is assumed to come from mk-async-task
    which can have a task-specific put-done function."
   [get-work num-threads &
-   {:keys [default-put-done,error-handler]}]
+   {:keys [default-put-done]}]
   (queue-work
     (async-task-worker default-put-done)
     get-work
     nil
     num-threads
-    :async
-    error-handler))
+    :async))
+
+(defn async-pipeline
+  "each pipe-specs consists of the following
+     f: function (required)
+  "
+  [input-work pipe-specs output-work])
 
 (defn shutdown
   "Initiates an orderly shutdown in which previously submitted tasks are executed, but no new tasks will be accepted. Invocation has no additional effect if already shut down."
@@ -173,15 +159,15 @@
   From: http://download-llnw.oracle.com/javase/6/docs/api/java/util/concurrent/ExecutorService.html"
   [^ExecutorService pool]
   (do (.shutdown pool)  ;; Disable new tasks from being submitted
-      (try ;; Wait a while for existing tasks to terminate
-        (if (not (.awaitTermination pool 60 TimeUnit/SECONDS))
-          (.shutdownNow pool) ; // Cancel currently executing tasks
+      (with-ex ;; Wait a while for existing tasks to terminate
+	(fn [e _ _]
+	  (when (instance? InterruptedException e)
+	    ;;(Re-)Cancel if current thread also interrupted
+	    (.shutdownNow pool)
+	    ;; Preserve interrupt status
+	    (.interrupt (Thread/currentThread))))	
+        #(if (not (.awaitTermination pool 60 TimeUnit/SECONDS))
+	  (.shutdownNow pool) ; // Cancel currently executing tasks
           ;;wait a while for tasks to respond to being cancelled
           (if (not (.awaitTermination pool 60 TimeUnit/SECONDS))
-            (println "Pool did not terminate" *err*)))
-        (catch InterruptedException _ _
-               (do
-                 ;;(Re-)Cancel if current thread also interrupted
-                 (.shutdownNow pool)
-                 ;; Preserve interrupt status
-                 (.interrupt (Thread/currentThread)))))))
+            (println "Pool did not terminate" *err*))))))

@@ -3,7 +3,7 @@
             [clojure.contrib.logging :as log])
   (:use	clj-serializer.core
 	[clojure.contrib.def :only [defvar]]
-	[plumbing.core :only [try-silent retry]])
+	[plumbing.core :only [silent]])
   (:import clojure.lang.RT))
 
 (defn from-var
@@ -18,7 +18,7 @@
   (let [root (-> ns-name
 		 (.replace "-" "_")
 		 (.replace "." "/"))]
-    (try-silent (RT/load root))
+    (silent #(RT/load %1) root)
     (.deref (RT/var ns-name, fn-name))))
 
 (defn- recieve*

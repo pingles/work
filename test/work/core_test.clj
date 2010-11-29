@@ -8,8 +8,9 @@
 (deftest map-work-test
   (is (= (range 10 1010 10)
 	 (work/map-work #(* 10 %)
-		   (range 1 101 1)
-		   10))))
+			10
+			(range 1 101 1)
+			))))
 
 (defn wait-for-complete-results
   "Test helper fn waits until the pool finishes processing before returning results."
@@ -22,8 +23,8 @@
   (let [input-data (range 1 101 1)
 	response-q (q/local-queue)
 	pool (work/do-work #(q/offer response-q (* 10 %))
-		   input-data
-		   10)]
+			   		   10
+		   input-data)]
   (is (= (range 10 1010 10)
 	 (wait-for-complete-results response-q (count input-data))))))
 
