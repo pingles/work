@@ -9,7 +9,10 @@
   ([xs]
      (LinkedBlockingQueue. xs)))
 
-(defn offer [q v] (.offer q v))
+(defn offer [q v]
+  (if-let [r (.offer q v)]
+    r
+    (throw (Exception. "Queue offer failed."))))
 
 (defn offer-all [q vs]
   (doseq [v vs]
@@ -18,7 +21,7 @@
 (defn offer-unique
   [q v]
   (if (not (.contains q v))
-    (.offer q v)))
+    (offer q v)))
 
 (defn offer-all-unique [q vs]
   (doseq [v vs]
