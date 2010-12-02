@@ -1,7 +1,7 @@
 (ns work.queue
   (:refer-clojure :exclude [peek])
-  (:import (java.util.concurrent
-            LinkedBlockingQueue)))
+  (:import (java.util.concurrent LinkedBlockingQueue
+                                 TimeUnit)))
 
 (defn local-queue
   ([]
@@ -28,5 +28,8 @@
     (offer-unique q v)))
 
 (defn peek [q] (.peek q))
-(defn poll [q] (.poll q))
+(defn poll
+  ([q] (.poll q))
+  ([q t] (.poll q t TimeUnit/SECONDS)))
+
 (defn size [q] (.size q))
