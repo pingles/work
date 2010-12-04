@@ -14,4 +14,5 @@
 	_ (work/offer-msg q [1 2 3])
 	_ (work/offer-msg q 3 4 5)]
     (is (= [1 2 3] (work/poll-msg q)))
-    (is (= [3 4 5] (work/poll-msg q)))))
+    (is (= [3 4 5] (work/poll-msg q)))
+    (is (= nil (work/poll-msg q)))))

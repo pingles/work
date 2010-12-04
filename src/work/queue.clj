@@ -44,6 +44,8 @@
     v nil))
 
 (defn poll-msg [q & [timeout]]
-  (from-msg (poll q)))
+  (if-let [m (poll q)]
+    (from-msg m)
+    nil))
 
 (defn size [q] (.size q))
