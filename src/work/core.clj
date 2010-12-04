@@ -103,24 +103,24 @@
   Valid values for mode are :sync or :async.  If a mode is not specified, queue-work defaults to :sync.
 
   All error and fault tolernace should be done by client using plumbing.core."
-  ([f get-work put-done threads]
-     (queue-work f get-work put-done threads :sync))
-  ([f get-work put-done threads mode]
-     (let [put-done (if (fn? put-done)
-                      put-done
-                      (fn [k & args]
-                        (apply (put-done k) args)))
-           pool (Executors/newFixedThreadPool threads)
-           fns (repeat threads
-                       (fn [] (do
-                                (if-let [task (get-work)]
-				  (if (= :async mode)
-                                      (f task put-done)
-                                      (put-done (f task)))
-                                  (Thread/sleep 5000))
-                                (recur))))
-           futures (doall (map #(.submit pool %) fns))]
-       pool)))
+  [f get-work put-done & [threads mode]]
+  (let [threads (or threads (available-processors))
+	mode (or mode :sync)
+	put-done (if (fn? put-done)
+		   put-done
+		   (fn [k & args]
+		     (apply (put-done k) args)))
+	pool (Executors/newFixedThreadPool threads)
+	fns (repeat threads
+		    (fn [] (do
+			     (if-let [task (get-work)]
+			       (if (= :async mode)
+				 (f task put-done)
+				 (put-done (f task)))
+			       (Thread/sleep 5000))
+			     (recur))))
+	futures (doall (map #(.submit pool %) fns))]
+    pool))
 
 (defn queue-async-work
   "queue asynchronous work where each task from

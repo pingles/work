@@ -1,5 +1,6 @@
 (ns work.queue
   (:refer-clojure :exclude [peek])
+  (:use work.message)
   (:import (java.util.concurrent LinkedBlockingQueue
                                  TimeUnit)))
 
@@ -13,6 +14,12 @@
   (if-let [r (.offer q v)]
     r
     (throw (Exception. "Queue offer failed."))))
+
+(defn offer-msg [q & args]
+ (let [x (if (= (count args) 1)
+	   (first args)
+	   args)]
+  (offer q (to-msg x))))
 
 (defn offer-all [q vs]
   (doseq [v vs]
@@ -29,7 +36,14 @@
 
 (defn peek [q] (.peek q))
 (defn poll
-  ([q] (.poll q))
-  ([q t] (.poll q t TimeUnit/SECONDS)))
+  [q & [t]]
+  (if-let [v 
+	   (if t
+	     (.poll q t TimeUnit/SECONDS)
+	     (.poll q))]
+    v nil))
+
+(defn poll-msg [q & [timeout]]
+  (from-msg (poll q)))
 
 (defn size [q] (.size q))

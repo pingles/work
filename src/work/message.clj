@@ -29,11 +29,14 @@
   (let [[[ns-name fn-name] & args] msg]
     (cons (to-var ns-name fn-name) args)))
 
+(defn from-msg [x]
+  (deserialize (.getBytes x) :eof))
+
 (defn recieve-clj
   "receive* message represented as a serialized
    clojure data object"
   [msg]
-  (recieve* (deserialize (.getBytes msg) :eof)))
+  (recieve* (from-msg msg)))
 
 (defn recieve-json
   "receive* message presented as a json string"
@@ -48,6 +51,9 @@
   (comp eval recieve-json)
   "evaluate msg represented by json string")
 
+(defn to-msg [x]
+  (String. (serialize x)))
+
 (defn send-clj
   "convert fn evaluation to String representing
    function evaluation as a clojure object message"
@@ -55,8 +61,7 @@
   (-> fn-var
       from-var
       (cons args)
-      serialize
-      String.))
+      to-msg))
 
 (defn send-json
   "convert fn evaluation to String json representation"
