@@ -20,11 +20,13 @@
   where n is specified by the rate arg, or supply a vector of fn-rate tuples to schedule a bunch of fns at once."
   ([^ExecutorService pool f rate]
      (.scheduleAtFixedRate
-      pool (with-log f) (long 0) (long rate) TimeUnit/SECONDS))
+      pool (with-log f) (long 0) (long rate) TimeUnit/SECONDS)
+     pool)
   ([jobs]
      (let [pool (Executors/newSingleThreadScheduledExecutor)] 
        (doall (for [[f rate] jobs]
-                (schedule-work pool f rate))))))
+                (schedule-work pool f rate)))
+       pool)))
 
 (defn- work*
   [fns threads]
