@@ -3,16 +3,17 @@
 	[plumbing.core :only [retry]])
  (:require [work.queue :as work]))
 
-(deftest local-queue-test
-  (let [q (work/local-queue ["a"])
-	_ (work/offer q "b")
-	_ (work/offer-unique q "a")]
-    (is (= 2 (work/size q)))))
+(defn- basic-queue-test [q]
+  (work/offer q "b")
+  (work/offer-unique q "a")
+  (is (= 2 (count q)))
+  (is (= (work/peek q) "b"))
+  (is (= (work/poll q) "b")))
 
-(deftest message-queue-test
-  (let [q (work/local-queue)
-	_ (work/offer-msg q [1 2 3])
-	_ (work/offer-msg q 3 4 5)]
-    (is (= [1 2 3] (work/poll-msg q)))
-    (is (= [3 4 5] (work/poll-msg q)))
-    (is (= nil (work/poll-msg q)))))
+
+
+(deftest local-queue-test
+  (basic-queue-test (work/local-queue)))
+
+(deftest local-queue-with-serializer-test
+  (basic-queue-test (work/with-serialize (work/local-queue))))
