@@ -3,6 +3,7 @@
             [clojure.contrib.logging :as log])
   (:use	clj-serializer.core
 	[clojure.contrib.def :only [defvar]]
+	[plumbing.serialize]
 	[plumbing.core :only [silent]])
   (:import clojure.lang.RT))
 
@@ -29,39 +30,42 @@
   (let [[[ns-name fn-name] & args] msg]
     (cons (to-var ns-name fn-name) args)))
 
-(defn from-msg [x]
-  (deserialize (.getBytes x) :eof))
-
-(defn recieve-clj
+(defn mk-recieve-clj
   "receive* message represented as a serialized
    clojure data object"
-  [msg]
-  (recieve* (from-msg msg)))
+  [serialize-impl]
+  (fn [msg] (recieve* (thaw serialize-impl msg))))
+
+(def recieve-clj (mk-recieve-clj default-serializer))
 
 (defn recieve-json
   "receive* message presented as a json string"
   [msg]
   (recieve* (json/parse-string msg)))
 
-(defvar clj-worker
-  (comp eval recieve-clj)
-  "evaluate msg represented by serialized clojure object")
+(defn mk-clj-worker
+  "evaluate msg represented by serialized clojure object"
+  [serialize-impl]
+  (comp eval (mk-recieve-clj serialize-impl)))
+
+(def clj-worker (mk-clj-worker default-serializer))
 
 (defvar json-worker
   (comp eval recieve-json)
   "evaluate msg represented by json string")
 
-(defn to-msg [x]
-  (String. (serialize x)))
-
-(defn send-clj
+(defn mk-send-clj
   "convert fn evaluation to String representing
    function evaluation as a clojure object message"
-  [fn-var & args]
-  (-> fn-var
-      from-var
-      (cons args)
-      to-msg))
+  [serialize-impl]
+  (fn [fn-var & args]
+    (freeze serialize-impl
+     (-> fn-var
+	 from-var
+	 (cons args)))))
+
+(defvar send-clj (mk-send-clj default-serializer)
+  "default mk-send-clj with default serialization")
 
 (defn send-json
   "convert fn evaluation to String json representation"

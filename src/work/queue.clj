@@ -17,17 +17,27 @@
 	   (throw (Exception. "Queue offer failed"))))
   (peek [this] (.peek this)))
 
+(defn with-adapter
+  [in-adapt out-adapt queue]
+  (reify
+         Queue
+	 (poll [q] (out-adapt (poll queue)))
+	 (offer [q x] (offer queue (in-adapt x)))
+	 (peek [q] (out-adapt (peek queue)))
+
+	 clojure.lang.Seqable
+	 (seq [this] (map out-adapt (seq queue)))
+
+	 clojure.lang.Counted
+	 (count [this] (count queue))))
+
 (defn with-serialize
   "decorates queue with serializing input and output to and from bytes."
   ([serialize-impl queue]
-     (reify Queue
-	    (poll [q] (thaw serialize-impl (poll queue)))
-	    (offer [q x] (offer queue (freeze serialize-impl x)))
-	    (peek [q] (thaw serialize-impl (peek queue)))
-	    clojure.lang.Seqable
-	    (seq [this] (seq queue))
-	    clojure.lang.Counted
-	    (count [this] (count queue))))
+     (with-adapter
+       (partial freeze serialize-impl)
+       (partial thaw serialize-impl)
+       queue))
   ([q] (with-serialize default-serializer q)))
 
 (defn local-queue
