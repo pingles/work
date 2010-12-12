@@ -75,20 +75,9 @@
 		    xs))]
       pool)))
 
-(defn mk-async-task [f args put-done]
-  {:f f
-   :args args
-   :put-done put-done})
-
-(defn async-task-worker
-  ([deflt-put-done]
-     (fn [{:as task
-	   :keys [f,args,put-done]
-	   :or {deflt-put-done put-done}} _]
-       (let [res (apply f args)]
-	 (when put-done (put-done res))
-	 res)))
-  ([] (async-task-worker nil)))
+;;Steps toward pulling otu composiiton strategy.  need to do same for input so calcs ca be push through or pill through.
+(defn async [f task out] (f task out))
+(defn sync [f task out] (out (f task)))
 
 ;;TODO; unable to shutdown pool. seems recursive fns are not responding to interrupt. http://download.oracle.com/javase/tutorial/essential/concurrency/interrupt.html
 ;;TODO: use another thread to check futures and make sure workers don't fail, don't hang, and call for work within their time limit?
@@ -106,43 +95,22 @@
   Valid values for mode are :sync or :async.  If a mode is not specified, queue-work defaults to :sync.
 
   All error and fault tolernace should be done by client using plumbing.core."
-  [f get-work put-done & [threads mode]]
+  [{:keys [f in out threads exec]}]
   (let [threads (or threads (available-processors))
-	mode (or mode :sync)
-	put-done (if (fn? put-done)
-		   put-done
-		   (fn [k & args]
-		     (apply (put-done k) args)))
+	ex (or exec sync)
+	out (if (fn? out)
+	      out
+	      (fn [k & args]
+		(apply (out k) args)))
 	pool (Executors/newFixedThreadPool threads)
 	fns (repeat threads
-		    (fn [] (do
-			     (if-let [task (get-work)]
-			       (if (= :async mode)
-				 (f task put-done)
-				 (put-done (f task)))
-			       (Thread/sleep 5000))
-			     (recur))))
+		    (fn []
+		      (if-let [task (in)]
+			(ex f task out)
+			(Thread/sleep 5000))
+		      (recur)))
 	futures (doall (map #(.submit pool %) fns))]
     pool))
-
-(defn queue-async-work
-  "queue asynchronous work where each task from
-   get-work is assumed to come from mk-async-task
-   which can have a task-specific put-done function."
-  [get-work num-threads &
-   {:keys [default-put-done]}]
-  (queue-work
-    (async-task-worker default-put-done)
-    get-work
-    nil
-    num-threads
-    :async))
-
-(defn async-pipeline
-  "each pipe-specs consists of the following
-     f: function (required)
-  "
-  [input-work pipe-specs output-work])
 
 (defn shutdown
   "Initiates an orderly shutdown in which previously submitted tasks are executed, but no new tasks will be accepted. Invocation has no additional effect if already shut down."

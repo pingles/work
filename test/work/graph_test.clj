@@ -1,4 +1,5 @@
 (ns work.graph-test
+  (:require [work.queue :as q])
   (:use clojure.test
 	work.graph))
 
@@ -22,3 +23,20 @@
 	   (fn [a b] (if (and a b) :foo :bar))
 	   (table :foo #(+ %1 %2) :bar #(- %1 %2)))
 	  2 2))))
+
+;;TODO: copied from core-test, need to factor out to somehwere.
+(defn wait-for-complete-results
+  "Test helper fn waits until the pool finishes processing before returning results."
+  [response-q expected-seq-size]
+  (while (< (.size response-q) expected-seq-size)
+    (Thread/sleep 100))
+  (sort (iterator-seq (.iterator response-q))))
+
+(deftest queue-work-test
+  (let [input-data (range 1 101 1)
+	head-vertex  {:out (q/local-queue input-data)}
+	pool (<-  head-vertex
+		  #(* 10 %)
+		  (fn [in out] #(q/offer out %)))]
+  (is (= (range 10 1010 10)
+  	 (wait-for-complete-results (:out pool) (count input-data))))))
