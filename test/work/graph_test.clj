@@ -32,11 +32,12 @@
     (Thread/sleep 100))
   (sort (iterator-seq (.iterator response-q))))
 
-(deftest queue-work-test
+(deftest graph-test
   (let [input-data (range 1 101 1)
-	head-vertex  {:out (q/local-queue input-data)}
-	pool (<-  head-vertex
-		  #(* 10 %)
-		  (fn [in out] #(q/offer out %)))]
-  (is (= (range 10 1010 10)
-  	 (wait-for-complete-results (:out pool) (count input-data))))))
+        out (-> (new-graph :input-data input-data)
+                (add-edge-> (broadcast-node (partial * 10) :threads 2))
+                (add-edge (terminal-node inc :id :output))
+                run-graph
+		terminal-queues)]
+    (is (= (map (fn [x] (inc (* 10 x))) (range 1 101 1))
+	   (seq (sort (wait-for-complete-results (:output out) (count input-data))))))))
