@@ -38,11 +38,11 @@ runs in a work pool accouriding to optional exection strategy based on exec."
         out (workq/local-queue)]
     {:in in
      :out out
-     :pool (future (work/queue-work
+     :pool (work/queue-work
 		    {:f f
 		     :in #(workq/poll in)
 		     :out (disp in out)
-		     :exec exec}))}))
+		     :exec exec})}))
 
 (defn <<-
   "A root vertex in a fngraph.
@@ -50,6 +50,6 @@ schedules work to feed an output channel which will be a directed edge to subscr
   [f freq]
   (let [out (workq/local-queue)]
     {:out out
-     :pool (future (work/schedule-work
-                    (f out)
-                    freq))}))
+     :pool (work/schedule-work
+            (f out)
+            freq)}))
