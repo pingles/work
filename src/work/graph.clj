@@ -35,7 +35,7 @@ creates a new dispatched output channel f:out from disp and out.
 runs in a work pool accouriding to optional exection strategy based on exec." 
   [vertex f disp & [exec]]
   (let [in (:out vertex)
-	out (workq/local-queue)]
+        out (workq/local-queue)]
     {:in in
      :out out
      :pool (future (work/queue-work
@@ -51,5 +51,5 @@ schedules work to feed an output channel which will be a directed edge to subscr
   (let [out (workq/local-queue)]
     {:out out
      :pool (future (work/schedule-work
-		    freq
-		    (f out)))}))
+                    (f out)
+                    freq))}))
