@@ -62,17 +62,19 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   (receive-message [this src msg] (workq/offer q msg))
   (poll-message [this] (workq/poll q)))
 
-;; Broadcast Policy
+;; Outbox Impls
 
-; outs is seq of Vertexs
 (defrecord  DefaultOutbox [disp outs]
   Outbox
   (broadcast [this src x]
-             (doseq [o (disp x outs)]
-	       (cond
-		(= o :self)  (receive-message (:inbox src) src x)
-		(instance? Vertex o) (receive-message (:inbox o) this x)
-		(fn? o) (o x))))
+	     (reduce
+	      (fn [cur d]
+		(cond
+		 (= d :recur)  (do (receive-message (:inbox src) src cur) cur)
+		 (instance? Vertex d) (do (receive-message (:inbox d) src cur) cur)
+		 (fn? d) (d cur)))
+	      x
+	      (disp x outs)))
   (add-listener [this listener] (update-in this [:outs] conj listener)))
 
 (defrecord  TerminalOutbox [out]
@@ -80,27 +82,23 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   (broadcast [this src x]
      (workq/offer out x)))
 
+(defn- mk-outbox-disp [disp]
+  (fn [x outs]
+    (if-not disp
+      outs
+      (let [outs-by-id (group-by :id outs)]
+	(apply concat
+	       (for [t (disp x)]
+		 (cond
+		  (fn? t) [t]
+		  (= :recur t) [:recur]
+		  (keyword? t) (outs-by-id t)
+		  :default nil)))))))
+
 (defn mk-outbox
   ([disp]
-     (DefaultOutbox.
-       (fn [x outs]
-	 (if-not disp
-	   outs
-	   (let [outs-by-id (group-by :id outs)]
-	     (for [t (disp x)
-		   d (cond
-		      (fn? t) t
-		      (= :recur t) :recur
-		      (keyword? t) (first (outs-by-id t))
-		      :default nil)
-		   :when d]
-	       d))))
-       []))
+     (DefaultOutbox. (mk-outbox-disp disp) []))      
   ([] (mk-outbox nil)))
-
-;; Queue-Work
-
-;; Start Vertex process put results in :process of vertex
 
 (defn- kill-vertex
   [vertex]
@@ -110,7 +108,7 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   "launch vertex return vertex with :pool field"
   [{:keys [f,inbox,outbox,threads,sleep-time,exec]
     :or {threads (work/available-processors)
-	 sleep-time 1000
+	 sleep-time 50
 	 exec work/sync}
      :as vertex}]
   (let [args {:f f
@@ -146,21 +144,32 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   "make a dispatching node
    f: function for vertex to execute on incoming messages
    disp: function which takes output of (f task) and returns
-   a seq of either keywords or fns. Each fn is executed and
-   each keyword is assumed to name a neighbor vertex. new element
+   a seq of either keywords or fns. You can use keyword :recur to
+   put a task back in inbox of current node. Each fn is executed and
+   each keyword is assumed to name a neighbor vertex. A given keyword
+   can match multiple neighbors. new element
    is sent to that vertex"
   [f disp & opts]
-  (let [new-opts (-> opts flatten (conj [:outbox (mk-outbox disp)]))]
-    (apply node f new-opts)))
+  (apply node f
+	 :outbox (mk-outbox disp)
+	 (apply concat (seq opts))))
 
 (defn terminal-node
   "make a terminal outbox node. same arguments as node
    except that you can pass an :out argument for the queue
    you want the vertex to drain to"
-  [f & {:keys [out] :as opts}]
+  [& {:keys [f, out] :as opts
+      :or {f identity
+	   out (workq/local-queue)}}]
   (apply node f
-         :outbox (if out (TerminalOutbox. out) (TerminalOutbox. (workq/local-queue)))
+         :outbox (TerminalOutbox. out)
          (apply concat (seq opts))))
+
+(defn side-effect-node [put-done]
+  (node identity
+   :inbox (reify Inbox
+		 (receive-message [this src msg]
+				  (put-done msg)))))
 
 (defn- root-node
   "make the root node. same as node except :input-data argument
@@ -236,30 +245,6 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
    {}
    (filter #(instance? TerminalOutbox (:outbox %))
 	   (all-vertices root))))
-
-(comment
-
-  (def n (-> identity
-	     (node
-	      :inbox (InboxQueue. (workq/local-queue [1 2 3]))
-	      :outbox (TerminalOutbox. (workq/local-queue)))
-	     run-vertex))
-  
-
-  (def x (-> (new-graph :input-data (range 5))
-	     (add-edge (terminal-node inc :id :final))
-	     run-graph
-	     terminal-queues))
-  
-  
-  (def out (-> (new-graph :input-data (range 5))
-               (add-edge-> (node inc :id :a))
-	       (add-edge (terminal-node dec :id :d))
-	       (add-edge (terminal-node inc :id :final))
-               run-graph
-	       terminal-queues))
-  out
-)
 	 
     
 

@@ -34,8 +34,8 @@
 
 (deftest one-node-graph-test
   (let [root (-> (new-graph :input-data (range 5))
-		 (add-edge (terminal-node inc :id :inc))
-		 (add-edge (terminal-node identity :id :identity))
+		 (add-edge (terminal-node :f inc :id :inc))
+		 (add-edge (terminal-node :id :identity))
 		  run-graph)
 	out (terminal-queues root)]
     (is (= (range 1 6) (wait-for-complete-results (:inc out) 5)))
@@ -46,8 +46,8 @@
   ; (range 5) -> inc -> inc
   (let [root (-> (new-graph :input-data (range 5))
 		 (add-edge-> (node inc))
-		 (add-edge (terminal-node inc :id :out))
-		 (add-edge (terminal-node (partial + 2) :id :plus-two))
+		 (add-edge (terminal-node :f inc :id :out))
+		 (add-edge (terminal-node :f (partial + 2) :id :plus-two))
 		 run-graph)
 	outs (terminal-queues root)]
     (is (= (range 2 7) (wait-for-complete-results (:out outs) 5)))
@@ -58,37 +58,37 @@
   (let [input-data (range 1 101 1)
         root (-> (new-graph :input-data input-data)
                 (add-edge-> (node (partial * 10) :threads 2))
-                (add-edge (terminal-node inc :id :output))
+                (add-edge (terminal-node :f inc :id :output))
                 run-graph)
 	out (terminal-queues root)]
     (is (= (map (fn [x] (inc (* 10 x))) (range 1 101 1))
 	   (wait-for-complete-results (:output out) (count input-data))))
     (kill-graph root)))
 
-;; (deftest dispatch-graph-test
-;;   (let [sink (terminal-node identity :id :out)
-;; 	root (-> (node identity
-;; 		    :outbox (mk-outbox
-;; 			     (fn [x]
-;; 			       (swank.core/break)
-;; 			       (cond (even? x) [:out :even]
-;; 				     (odd? x) [:odd]))))
-;; 		 graph-zip
-;; 		 (add-edge sink)
-;; 		 zip/root)
-;; 	;; #_g #_(-> (new-graph :input-data (range 100))
-;; 	;; 	 (add-edge-> (dispatch-node identity
-;; 	;; 		        (fn [x]
-;; 	;; 			  (swank.core/break)
-;; 	;; 			  (cond (even? x) [:even]
-;; 	;; 				(odd? x) [:odd]))))
-;; 	;; 	 (add-edge-> (node inc :id :even))
-;; 	;; 	 (add-edge sink)
-;; 	;; 	 zip/up
-;; 	;; 	 (add-edge-> (node (partial + 2) :id :odd))
-;; 	;; 	 (add-edge sink)
-;; 	;; 	 run-graph)
-;; 	]
-;;     ((-> root :outbox :disp) 1 nil)))
+(deftest simple-dispatch-test
+  (let [disp (fn [x]
+	       (cond (odd? x) [:odd :all :plus-1]
+		     (even? x) [:even :all]))
+	root (-> (new-graph :input-data [1 2 3 4 5])
+		 (add-edge-> (dispatch-node identity disp))
+		 (add-edge (terminal-node :id :even))
+		 (add-edge (terminal-node :id :odd))
+		 (add-edge (terminal-node :id :all))
+		 (add-edge (terminal-node :f inc :id :plus-1))
+		 run-graph)
+	outs (terminal-queues root)]
+    (Thread/sleep 2000)
+    (kill-graph root)
+    (is (= (-> outs :even seq sort) [2 4]))
+    (is (= (-> outs :odd seq sort) [1 3 5]))
+    (is (= (-> outs :all seq sort) (range 1 6)))
+    (is (= (-> outs :plus-1 seq sort) (map inc [1 3 5])))))
 
-;; (dispatch-graph-test)
+(deftest simple-sideffect-test
+  (let [a (atom nil)
+	root (-> (new-graph :input-data [1 2 3 4 5])		 
+		 (add-edge-> (side-effect-node
+			      (fn [x] (swap! a conj x))))
+		 run-graph)]
+    (Thread/sleep 2000)
+    (is (= (sort @a) [1 2 3 4 5]))))

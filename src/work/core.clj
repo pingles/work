@@ -95,9 +95,10 @@
   Valid values for mode are :sync or :async.  If a mode is not specified, queue-work defaults to :sync.
 
   All error and fault tolernace should be done by client using plumbing.core."
-  [{:keys [f in out threads exec]}]
+  [{:keys [f in out threads exec sleep-time]}]
   (let [threads (or threads (available-processors))
 	ex (or exec sync)
+	sleep-time (or sleep-time 5000)
 	out (if (fn? out)
 	      out
 	      (fn [k & args]
@@ -107,7 +108,7 @@
 		    (fn []
 		      (if-let [task (in)]
 			(ex f task out)
-			(Thread/sleep 5000))
+			(Thread/sleep sleep-time))
 		      (recur)))
 	futures (doall (map #(.submit pool %) fns))]
     pool))
