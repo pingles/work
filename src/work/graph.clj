@@ -157,7 +157,7 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   [f disp & opts]
   (apply node f
 	 :outbox (mk-outbox disp)
-	 (apply concat (seq opts))))
+	 opts))
 
 (defn terminal-node
   "make a terminal outbox node. same arguments as node
@@ -170,11 +170,12 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
          :outbox (TerminalOutbox. out)
          (apply concat (seq opts))))
 
-(defn side-effect-node [put-done]
-  (node identity
+(defn side-effect-node [put-done & opts]
+  (apply node identity
    :inbox (reify Inbox
 		 (receive-message [this src msg]
-				  (put-done msg)))))
+				  (put-done msg)))
+   opts))
 
 (defn- root-node
   "make the root node. same as node except :input-data argument
