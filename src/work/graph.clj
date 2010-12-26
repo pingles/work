@@ -93,7 +93,8 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 		  (fn? t) [t]
 		  (= :recur t) [:recur]
 		  (keyword? t) (outs-by-id t)
-		  :default nil)))))))
+		  :default
+		    (throw (RuntimeException. (str "Can't dispatch on value " t))))))))))
 
 (defn mk-outbox
   ([disp]
@@ -106,14 +107,17 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 
 (defn- run-vertex
   "launch vertex return vertex with :pool field"
-  [{:keys [f,inbox,outbox,threads,sleep-time,exec]
+  [{:keys [f,inbox,outbox,threads,sleep-time,exec,make-tasks]
     :or {threads (work/available-processors)
 	 sleep-time 50
-	 exec work/sync}
+	 exec work/sync
+	 make-tasks (fn [x] [x])}
      :as vertex}]
   (let [args {:f f
 	      :in (partial poll-message inbox)
-	      :out (partial broadcast outbox vertex)
+	      :out (fn [output]
+		     (doseq [o (make-tasks output)]
+		       (broadcast outbox vertex o)))
 	      :sleep-time sleep-time
 	      :threads threads
 	      :exec exec}]
@@ -131,13 +135,14 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
    inbox: InboxQueue with new empty queue
    outbox: DefaultOutbox no neighbors"
   [f  &
-   {:keys [id inbox outbox process]
+   {:keys [id inbox outbox ]
     :or {inbox (InboxQueue. (workq/local-queue))
          outbox (mk-outbox)
          id (gensym)}
     :as opts}]
   (-> f
       (Vertex. inbox outbox)
+      (merge opts)
       (assoc :id id)))
 
 (defn dispatch-node
