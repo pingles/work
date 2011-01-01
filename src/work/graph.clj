@@ -49,14 +49,14 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 
 (defrecord Vertex [f inbox outbox])
 
-(defrecord Edge [when make-tasks to])
+(defrecord Edge [when convert-task to])
 
 (defn- mk-edge
   [to &
-   {:keys [when, make-tasks]
+   {:keys [when, convert-task]
     :or {when (constantly true)
-	 make-tasks (fn [x] [x])}}]
-  (Edge. when make-tasks to))
+	 convert-task (fn [x] [x])}}]
+  (Edge. when convert-task to))
 
 (defn drain-to-vertex
   "send seq to vertex inbox, returns vertex"
@@ -76,9 +76,9 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 (defrecord  DefaultOutbox [out-edges]
   Outbox
   (broadcast [this src x]
-	     (doseq [{:keys [when,make-tasks,to]} out-edges
+	     (doseq [{:keys [when,convert-task,to]} out-edges
 		     :when (when x)
-		     task (make-tasks x)]
+		     task (convert-task x)]
 	       (cond
 		(= to :recur) (receive-message (:inbox src) src task)
 		(fn? to) (to task)
@@ -96,7 +96,7 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 
 (defn- run-vertex
   "launch vertex return vertex with :pool field"
-  [{:keys [f,inbox,outbox,threads,sleep-time,exec]
+  [{:keys [f,inbox,outbox,threads,sleep-time,exec,make-tasks]
     :or {threads (work/available-processors)
 	 sleep-time 50
 	 exec work/sync}
@@ -104,7 +104,9 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   (when (instance? Vertex vertex)
     (let [args {:f f
 		:in (partial poll-message inbox)
-		:out (partial broadcast outbox vertex)
+		:out (fn [x]
+		       (doseq [task (make-tasks x)]
+			 (broadcast outbox vertex task)))
 		:sleep-time sleep-time
 		:threads threads
 		:exec exec}]
@@ -119,17 +121,20 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
    --------
    id: gensymd 
    inbox: InboxQueue with new empty queue
-   outbox: DefaultOutbox no neighbors"
+   outbox: DefaultOutbox no neighbors
+   make-tasks: Make tasks for all children from fn output. Default
+   to just output of node function"
   [f  &
-   {:keys [id inbox outbox ]
+   {:keys [id inbox outbox make-tasks]
     :or {inbox (InboxQueue. (workq/local-queue))
          outbox (DefaultOutbox. [])
+	 make-tasks (fn [x] [x])
          id (gensym)}
     :as opts}]
   (-> f
       (Vertex. inbox outbox)
       (merge opts)
-      (assoc :id id)))
+      (assoc :id id :make-tasks make-tasks)))
 
 (defn terminal-node
   "make a terminal outbox node. same arguments as node
@@ -210,8 +215,9 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
    Edge options
    ===============
    :when predicate returning when message is sent to edge
-   :make-tasks a fn that takes an input and returns a seq
-   of tasks for the target node "
+   :convert-task a fn that takes an input task and returns a seq
+   of tasks to put in inbox. Default to singleton of input task
+   (i.e., no convertion)"
   [graph-loc trg & opts]
   (zip/edit graph-loc add-edge-internal (apply mk-edge trg opts)))
 

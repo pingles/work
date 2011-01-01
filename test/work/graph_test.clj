@@ -88,7 +88,7 @@
   (let [root (-> (new-graph :input-data [[:a :b :c] [:d :e :f]])
 		 (add-edge-> (node (fn [x] (str "a" x))
 				   :threads 1)				   
-			     :make-tasks (fn [x]		       
+			     :convert-task (fn [x]		       
 					   (identity x)))
 		 (add-edge (terminal-node :id :out))
 		 run-graph)]
