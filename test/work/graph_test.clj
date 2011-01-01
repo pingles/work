@@ -36,7 +36,7 @@
   (let [root (-> (new-graph :input-data (range 5))
 		 (add-edge (terminal-node :f inc :id :inc))
 		 (add-edge (terminal-node :id :identity))
-		  run-graph)
+		 run-graph)
 	out (terminal-queues root)]
     (is (= (range 1 6) (wait-for-complete-results (:inc out) 5)))
     (is (= (range 5) (wait-for-complete-results (:identity out) 5)))
@@ -66,29 +66,40 @@
     (kill-graph root)))
 
 (deftest simple-dispatch-test
-  (let [disp (fn [x]
-	       (cond (odd? x) [:odd :all :plus-1]
-		     (even? x) [:even :all]))
-	root (-> (new-graph :input-data [1 2 3 4 5])
-		 (add-edge-> (dispatch-node identity disp))
-		 (add-edge (terminal-node :id :even))
-		 (add-edge (terminal-node :id :odd))
+  (let [root (-> (new-graph :input-data [1 2 3 4 5])
+		 (add-edge-> (node identity))
+		 (add-edge (terminal-node :id :even)
+			   :when even?)
+		 (add-edge (terminal-node :id :odd)
+			   :when odd?)
 		 (add-edge (terminal-node :id :all))
-		 (add-edge (terminal-node :f inc :id :plus-1))
+		 (add-edge (terminal-node :f inc :id :plus-1)
+			   :when odd?)
 		 run-graph)
 	outs (terminal-queues root)]
-    (Thread/sleep 2000)
+    (Thread/sleep 200)
     (kill-graph root)
     (is (= (-> outs :even seq sort) [2 4]))
     (is (= (-> outs :odd seq sort) [1 3 5]))
     (is (= (-> outs :all seq sort) (range 1 6)))
     (is (= (-> outs :plus-1 seq sort) (map inc [1 3 5])))))
 
+(deftest transform-test
+  (let [root (-> (new-graph :input-data [[:a :b :c] [:d :e :f]])
+		 (add-edge-> (node (fn [x] (str "a" x))
+				   :threads 1)				   
+			     :make-tasks (fn [x]		       
+					   (identity x)))
+		 (add-edge (terminal-node :id :out))
+		 run-graph)]
+    (Thread/sleep 1000)
+    (is (= (-> root terminal-queues :out seq sort)
+	   ["a:a" "a:b" "a:c" "a:d" "a:e" "a:f"]))))
+
 (deftest simple-sideffect-test
   (let [a (atom nil)
 	root (-> (new-graph :input-data [1 2 3 4 5])		 
-		 (add-edge-> (side-effect-node
-			      (fn [x] (swap! a conj x))))
+		 (add-edge-> (fn [x] (swap! a conj x)))
 		 run-graph)]
     (Thread/sleep 2000)
     (is (= (sort @a) [1 2 3 4 5]))))

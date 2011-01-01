@@ -49,6 +49,15 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 
 (defrecord Vertex [f inbox outbox])
 
+(defrecord Edge [when make-tasks to])
+
+(defn- mk-edge
+  [to &
+   {:keys [when, make-tasks]
+    :or {when (constantly true)
+	 make-tasks (fn [x] [x])}}]
+  (Edge. when make-tasks to))
+
 (defn drain-to-vertex
   "send seq to vertex inbox, returns vertex"
   [vertex xs]
@@ -64,66 +73,43 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 
 ;; Outbox Impls
 
-(defrecord  DefaultOutbox [disp outs]
+(defrecord  DefaultOutbox [out-edges]
   Outbox
   (broadcast [this src x]
-	     (reduce
-	      (fn [cur d]
-		(cond
-		 (= d :recur)  (do (receive-message (:inbox src) src cur) cur)
-		 (instance? Vertex d) (do (receive-message (:inbox d) src cur) cur)
-		 (fn? d) (d cur)))
-	      x
-	      (disp x outs)))
-  (add-listener [this listener] (update-in this [:outs] conj listener)))
+	     (doseq [{:keys [when,make-tasks,to]} out-edges
+		     :when (when x)
+		     task (make-tasks x)]
+	       (cond
+		(= to :recur) (receive-message (:inbox src) src task)
+		(fn? to) (to task)
+		(instance? Vertex to) (receive-message (:inbox to) src task))))
+  (add-listener [this listener] (update-in this [:out-edges] conj listener)))
 
 (defrecord  TerminalOutbox [out]
   Outbox
   (broadcast [this src x]
      (workq/offer out x)))
 
-(defn- mk-outbox-disp [disp]
-  (fn [x outs]
-    (if-not disp
-      outs
-      (let [outs-by-id (group-by :id outs)]
-	(apply concat
-	       (for [t (disp x)]
-		 (cond
-		  (fn? t) [t]
-		  (= :recur t) [:recur]
-		  (keyword? t) (outs-by-id t)
-		  :default
-		    (throw (RuntimeException. (str "Can't dispatch on value " t))))))))))
-
-(defn mk-outbox
-  ([disp]
-     (DefaultOutbox. (mk-outbox-disp disp) []))      
-  ([] (mk-outbox nil)))
-
 (defn- kill-vertex
   [vertex]
-  (-?> vertex :pool deref work/shutdown-now))
+  (-?> vertex :pool deref work/two-phase-shutdown))
 
 (defn- run-vertex
   "launch vertex return vertex with :pool field"
-  [{:keys [f,inbox,outbox,threads,sleep-time,exec,make-tasks]
+  [{:keys [f,inbox,outbox,threads,sleep-time,exec]
     :or {threads (work/available-processors)
 	 sleep-time 50
-	 exec work/sync
-	 make-tasks (fn [x] [x])}
+	 exec work/sync}
      :as vertex}]
-  (let [args {:f f
-	      :in (partial poll-message inbox)
-	      :out (fn [output]
-		     (doseq [o (make-tasks output)]
-		       (broadcast outbox vertex o)))
-	      :sleep-time sleep-time
-	      :threads threads
-	      :exec exec}]
-    (assoc vertex
-     :pool-args (into {} args)
-     :pool (future (work/queue-work args)))))
+  (when (instance? Vertex vertex)
+    (let [args {:f f
+		:in (partial poll-message inbox)
+		:out (partial broadcast outbox vertex)
+		:sleep-time sleep-time
+		:threads threads
+		:exec exec}]
+      (assoc vertex
+	:pool (future (work/queue-work args))))))
 		   
 (defn node
   "make a node. only required argument is the fn f at the vertex.
@@ -137,27 +123,13 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   [f  &
    {:keys [id inbox outbox ]
     :or {inbox (InboxQueue. (workq/local-queue))
-         outbox (mk-outbox)
+         outbox (DefaultOutbox. [])
          id (gensym)}
     :as opts}]
   (-> f
       (Vertex. inbox outbox)
       (merge opts)
       (assoc :id id)))
-
-(defn dispatch-node
-  "make a dispatching node
-   f: function for vertex to execute on incoming messages
-   disp: function which takes output of (f task) and returns
-   a seq of either keywords or fns. You can use keyword :recur to
-   put a task back in inbox of current node. Each fn is executed and
-   each keyword is assumed to name a neighbor vertex. A given keyword
-   can match multiple neighbors. new element
-   is sent to that vertex"
-  [f disp & opts]
-  (apply node f
-	 :outbox (mk-outbox disp)
-	 opts))
 
 (defn terminal-node
   "make a terminal outbox node. same arguments as node
@@ -169,13 +141,6 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   (apply node f
          :outbox (TerminalOutbox. out)
          (apply concat (seq opts))))
-
-(defn side-effect-node [put-done & opts]
-  (apply node identity
-   :inbox (reify Inbox
-		 (receive-message [this src msg]
-				  (put-done msg)))
-   opts))
 
 (defn- root-node
   "make the root node. same as node except :input-data argument
@@ -189,21 +154,38 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
            (apply concat  (seq opts))))
 
 (defn- add-edge-internal
-  [src trg]
-  (update-in src [:outbox :outs] conj trg))
+  [src out-edge]
+  (update-in src [:outbox :out-edges] conj out-edge))
 
 (defn graph-zip
-  "make a zipper out of a graph"
+  "make a zipper out of a graph. each zipper location is either
+   a graph node (Vertex, fn, or keyword) or a graph edge. So to move from
+   a node to its parent you zip/up twice for instance. "
   [root]
   (zip/zipper
-   ; branch?
-   (fn [n]
-     (->> n :outbox (instance? DefaultOutbox)))
-   ; children
-   (comp :outs :outbox)
-   ; make-node
-   (fn [n cs]
-     (assoc-in  n [:outbox :outs] cs))
+   ;; branch?
+   (fn [x]
+     (or (instance? Edge x)
+	 (and (instance? Vertex x) (->> x :outbox (instance? DefaultOutbox)))))
+   ;; children
+   (fn [x]
+     (cond
+        (instance? Edge x) [(:to x)]
+	(instance? Vertex x) (-> x :outbox :out-edges)
+	:default (throw (RuntimeException. (format "Can't take children of %s" (pr-str x))))))
+   ;; make-node
+   (fn [x cs]
+     (cond
+      (instance? Edge x)
+        (do
+	  (assert (and (= (count cs) 1)))
+	  (assoc x :to (first cs)))
+      (instance? Vertex x)
+        (do
+	  (every? (partial instance? Edge) cs)
+	  (assoc-in x [:outbox :out-edges] cs))
+	:default (throw (RuntimeException.
+			 (format "Can't make node from %s and %s" x cs)))))
    ; root 
    root))
 
@@ -217,17 +199,35 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 
 (defn add-edge
   "Add edge to current broadcast node in graph-loc. Does
-   not change zipper location"
-  [graph-loc trg]
-  (zip/edit graph-loc add-edge-internal trg))
+   not change zipper location.
+
+   trg: Either Vertex, :recur or fn
+
+   message is passd to Vertex 
+   fn is executed on messgage
+   :recur message sent back to vertex
+   
+   Edge options
+   ===============
+   :when predicate returning when message is sent to edge
+   :make-tasks a fn that takes an input and returns a seq
+   of tasks for the target node "
+  [graph-loc trg & opts]
+  (zip/edit graph-loc add-edge-internal (apply mk-edge trg opts)))
 
 (defn add-edge->
   "same as add-edge but also moves zipper cursor to new trg"
-  [graph-loc trg]
-  (-> graph-loc (add-edge trg) zip/down zip/rightmost))
+  [graph-loc trg & opts]
+  (-> graph-loc
+      (zip/edit add-edge-internal (apply mk-edge trg opts))
+      zip/down
+      zip/down
+      zip/rightmost))
 
 (defn- all-vertices [root]
-  (remove nil? (map zip/node (zf/descendants (graph-zip root)))))
+  (for [loc  (zf/descendants (graph-zip root))
+	:when (and loc (->> loc zip/node (instance? Vertex)))]
+    (zip/node loc)))
 
 (defn run-graph
   "launches in DFS order the vertex processs and returns a map from
@@ -251,7 +251,3 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
    {}
    (filter #(instance? TerminalOutbox (:outbox %))
 	   (all-vertices root))))
-	 
-    
-
-
