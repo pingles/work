@@ -224,11 +224,12 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 (defn add-edge->
   "same as add-edge but also moves zipper cursor to new trg"
   [graph-loc trg & opts]
+  (assert (instance? Vertex (zip/node graph-loc)))
   (-> graph-loc
       (zip/edit add-edge-internal (apply mk-edge trg opts))
       zip/down
-      zip/down
-      zip/rightmost))
+      zip/rightmost
+      zip/down))
 
 (defn- all-vertices [root]
   (for [loc  (zf/descendants (graph-zip root))
