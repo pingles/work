@@ -8,5 +8,12 @@
                  [clj-time "0.2.0-SNAPSHOT"]
                  [clj-json "0.3.1"]]
   :dev-dependencies [[swank-clojure "1.3.0-SNAPSHOT"]
-                     [lein-clojars "0.5.0"
-                      lein-run "1.0.0"]])
+                     [lein-clojars "0.5.0"]
+                     [lein-run "1.0.0"]
+                     [robert/hooke "1.1.0"]]
+  :test-selectors {:default (fn [v] (not (or (:integration v)
+                                             (:system v))))
+                   :integration :integration
+                   :system :system
+                   :independent :independent
+                   :all (fn [_] true)})
