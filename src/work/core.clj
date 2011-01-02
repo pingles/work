@@ -1,12 +1,12 @@
 (ns work.core
-  (:refer-clojure :exclude [peek])
+  (:refer-clojure :exclude [peek sync])
   (:require [clj-json [core :as json]]
             [clojure.contrib.logging :as log])
   (:use work.queue
-	work.message
-	clj-serializer.core
-	[clojure.contrib.def :only [defvar]]
-	[plumbing.core :only [print-all with-ex with-log]])
+        work.message
+        clj-serializer.core
+        [clojure.contrib.def :only [defvar]]
+        [plumbing.core :only [print-all with-ex with-log]])
   (:import (java.util.concurrent
             Executors ExecutorService TimeUnit
             LinkedBlockingQueue)
@@ -75,9 +75,14 @@
 		    xs))]
       pool)))
 
-;;Steps toward pulling otu composiiton strategy.  need to do same for input so calcs ca be push through or pill through.
+;;Steps toward pulling out composiiton strategy.  need to do same for input so calcs ca be push through or pill through.
 (defn async [f task out] (f task out))
 (defn sync [f task out] (out (f task)))
+
+(defn in-pool
+  [^ExecutorService p f]
+  (fn [& args]
+    (.submit p (cast Runnable (fn [] (apply f args))))))
 
 ;;TODO; unable to shutdown pool. seems recursive fns are not responding to interrupt. http://download.oracle.com/javase/tutorial/essential/concurrency/interrupt.html
 ;;TODO: use another thread to check futures and make sure workers don't fail, don't hang, and call for work within their time limit?
@@ -97,20 +102,23 @@
   All error and fault tolernace should be done by client using plumbing.core."
   [{:keys [f in out threads exec sleep-time]}]
   (let [threads (or threads (available-processors))
-	ex (or exec sync)
-	sleep-time (or sleep-time 5000)
-	out (if (fn? out)
-	      out
-	      (fn [k & args]
-		(apply (out k) args)))
-	pool (Executors/newFixedThreadPool threads)
-	fns (repeat threads
-		    (fn []
-		      (if-let [task (in)]
-			(ex f task out)
-			(Thread/sleep sleep-time))
-		      (recur)))
-	futures (doall (map #(.submit pool %) fns))]
+        sleep-time (or sleep-time 5000)
+        exec (or exec sync)
+        pool (Executors/newFixedThreadPool threads)
+        out (condp = ((juxt fn? (constantly exec)) out)
+                [true sync]  out
+                [true async] (in-pool clojure.lang.Agent/soloExecutor out)
+                [false sync] (fn [k & args]
+                               (apply (out k) args))
+                [false async] (in-pool clojure.lang.Agent/soloExecutor (fn [k & args]
+                                                                         (apply (out k) args))))
+        fns (repeat threads
+                    (fn []
+                      (if-let [task (in)]
+                        (exec f task out)
+                        (Thread/sleep sleep-time))
+                      (recur)))
+        futures (doall (map #(.submit pool %) fns))]
     pool))
 
 (defn shutdown

@@ -1,23 +1,21 @@
 (ns work.core-test
   (:use clojure.test
 	work.graph
-	[plumbing.core :only [retry]])
+	[plumbing.core :only [retry wait-until]])
  (:require [work.core :as work])
  (:require [work.message :as msg])
  (:require [work.queue :as q]))
 
 (deftest map-work-test
   (is (= (range 10 1010 10)
-	 (work/map-work #(* 10 %)
-			10
-			(range 1 101 1)
-			))))
+         (work/map-work #(* 10 %)
+                        10
+                        (range 1 101 1)))))
 
 (defn wait-for-complete-results
   "Test helper fn waits until the pool finishes processing before returning results."
   [response-q expected-seq-size]
-  (while (< (.size response-q) expected-seq-size)
-    (Thread/sleep 100))
+  (wait-until #(= (.size response-q) expected-seq-size) 20)
   (sort (iterator-seq (.iterator response-q))))
 
 (deftest do-work-test
@@ -55,34 +53,34 @@
 
 (deftest async-queue-work-test
   (let [input-data (range 1 101 1)
-	request-q (q/local-queue input-data)
+        request-q (q/local-queue input-data)
         response-q (q/local-queue)
         pool (future
               (work/queue-work
                {:f (fn [task put-done]
-		     (put-done (* 10 task)))
-		:in #(q/poll request-q)
-		:out #(q/offer response-q %)
-		:threads 10
-		:exec work/async}))]
-  (is (= (range 10 1010 10)
-	 (wait-for-complete-results response-q (count input-data))))))
+                     (put-done (* 10 task)))
+                :in #(q/poll request-q)
+                :out #(q/offer response-q %)
+                :threads 10
+                :exec work/async}))]
+    (is (= (range 10 1010 10)
+           (wait-for-complete-results response-q (count input-data))))))
 
-(deftest aysnc-blocking-queue-work-test
+(deftest async-blocking-queue-work-test
   (let [input-data (range 1 21 1)
-	request-q (q/local-queue input-data)
-	response-q (q/local-queue)
-	pool (future
-	      (work/queue-work
-	       {:f (fn [task put-done]
-		     (Thread/sleep 1000)
-		     (put-done (* 10 task)))
-		:in #(q/poll request-q)
-		:out #(q/offer response-q %)
-		:threads 10
-		:exec work/async}))]
+        request-q (q/local-queue input-data)
+        response-q (q/local-queue)
+        pool (future
+              (work/queue-work
+               {:f (fn [task put-done]
+                     (Thread/sleep 1000)
+                     (put-done (* 10 task)))
+                :in #(q/poll request-q)
+                :out #(q/offer response-q %)
+                :threads 10
+                :exec work/async}))]
     (is (= (range 10 210 10)
-	   (wait-for-complete-results response-q (count input-data))))))
+           (wait-for-complete-results response-q (count input-data))))))
 
 (defn times10 [x] (* 10 x))
 
