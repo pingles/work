@@ -1,6 +1,7 @@
 (ns work.graph-test
   (:require [work.queue :as q] [clojure.zip :as zip])
   (:use clojure.test
+	plumbing.core
 	work.graph))
 
 (deftest table-test
@@ -103,3 +104,17 @@
 		 run-graph)]
     (Thread/sleep 2000)
     (is (= (sort @a) [1 2 3 4 5]))))
+
+(deftest meter-test
+  (let [root (-> (new-graph :input-data (range 10000))
+		 (add-edge-> (node inc :id :inc))
+		 (add-edge-> (node (partial + 2) :id :+2))
+		 (add-edge (terminal-node :id :done))
+		 run-graph)
+	out (-> root terminal-queues :done)]
+    (wait-until #(= (count out) 10000) 10)
+    (meter-report root)
+    (is (every?
+	 (fn [[_ [num-tasks secs]]]
+	   (= num-tasks 10000))
+	 (meter-graph root)))))

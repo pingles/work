@@ -94,6 +94,10 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   [vertex]
   (-?> vertex :pool deref work/two-phase-shutdown))
 
+(defn- meter-rate [{:keys [start,tasks]}]
+  (let [secs (/ (- (System/currentTimeMillis) @start) 1000.0)]
+    [@tasks secs]))
+
 (defn- run-vertex
   "launch vertex return vertex with :pool field"
   [{:keys [f,inbox,outbox,threads,sleep-time,exec,make-tasks]
@@ -102,15 +106,21 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 	 exec work/sync}
      :as vertex}]
   (when (instance? Vertex vertex)
-    (let [args {:f f
-		:in (partial poll-message inbox)
+    (let [meter {:start (atom nil)
+		 :tasks (atom 0)}	
+	  args {:f f
+		:in (fn [& args]
+		      (swap! (:start meter) (constantly (System/currentTimeMillis)))
+		      (apply poll-message inbox args))		    	
 		:out (fn [x]
+		       (swap! (:tasks meter) inc)
 		       (doseq [task (make-tasks x)]
 			 (broadcast outbox vertex task)))
 		:sleep-time sleep-time
 		:threads threads
 		:exec exec}]
       (assoc vertex
+	:meter meter
 	:pool (future (work/queue-work args))))))
 		   
 (defn node
@@ -236,14 +246,36 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 	:when (and loc (->> loc zip/node (instance? Vertex)))]
     (zip/node loc)))
 
+(defn meter-graph
+  "return a map from vertex id to a pair
+   [num-tasks secs]
+   where num-tasks is the number of tasks processed
+   and secs is the # of seconds spent processing."
+  [root]
+  (->> (all-vertices root)
+       (map (fn [v] [(:id v) (meter-rate (:meter v))]) )
+       (into {})))
+
+(defn meter-report  
+  ([root level]
+     (doseq [[id [num-tasks secs]] (meter-graph root)]
+       (log/log level (format "Node id %s has rate %.3f (%d/%.3f)"
+			      id (/ num-tasks (double secs)) num-tasks secs))))
+  ([root] (meter-report root :info)))
+
 (defn run-graph
   "launches in DFS order the vertex processs and returns a map from
    terminal node ids (possibly gensymd) to their out-queues"
   [graph-loc]
-  (let [root (zip/root graph-loc)]
-    (doseq [v (all-vertices root)]
-      (run-vertex v))
-    root))
+  (let [root (zip/root graph-loc)
+	update (fn [loc]
+		 (if (instance? Vertex (zip/node loc))
+		   (zip/edit loc run-vertex)
+		   loc))]
+    (loop [loc (graph-zip root)]
+      (if (zip/end? loc)
+	(zip/root loc)
+	(recur (-> loc update zip/next))))))
 
 (defn kill-graph [root & to-exclude]
   (let [to-exclude (into #{} to-exclude)]
