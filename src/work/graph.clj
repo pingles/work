@@ -94,28 +94,34 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   [vertex]
   (-?> vertex :pool deref work/two-phase-shutdown))
 
-(defn- meter-rate [{:keys [start,tasks]}]
-  (let [secs (/ (- (System/currentTimeMillis) @start) 1000.0)]
-    [@tasks secs]))
-
 (defn- run-vertex
   "launch vertex return vertex with :pool field"
   [{:keys [f,inbox,outbox,threads,sleep-time,exec,make-tasks]
     :or {threads (work/available-processors)
-	 sleep-time 50
+	 sleep-time 10
 	 exec work/sync}
      :as vertex}]
   (when (instance? Vertex vertex)
-    (let [meter {:start (atom nil)
-		 :tasks (atom 0)}	
-	  args {:f f
-		:in (fn [& args]
-		      (swap! (:start meter) (constantly (System/currentTimeMillis)))
-		      (apply poll-message inbox args))		    	
-		:out (fn [x]
-		       (swap! (:tasks meter) inc)
-		       (doseq [task (make-tasks x)]
-			 (broadcast outbox vertex task)))
+    (let [meter {:num-in-tasks (atom 0)
+		 :num-err-tasks (atom 0)
+		 :num-out-tasks (atom 0)}
+	  
+	  args {:f (with-ex
+		     (fn [e f args]
+		       ((logger) e f args) 
+		       (swap! (:num-err-tasks meter) inc))
+		     f)
+		:in (with-log
+		      (fn [& args]		       
+		       (let [input (apply poll-message inbox args)]
+			 (when (and input (not= input :eof))
+			   (swap! (:num-in-tasks meter) inc))
+			 input)))		    	
+		:out (with-log
+		       (fn [x]
+			(swap! (:num-out-tasks meter) inc)
+			(doseq [task (make-tasks x)]
+			  (broadcast outbox vertex task))))
 		:sleep-time sleep-time
 		:threads threads
 		:exec exec}]
@@ -253,15 +259,8 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
    and secs is the # of seconds spent processing."
   [root]
   (->> (all-vertices root)
-       (map (fn [v] [(:id v) (meter-rate (:meter v))]) )
+       (map (fn [{:keys [id, meter]}] [id (map-map deref meter)]) )
        (into {})))
-
-(defn meter-report  
-  ([root level]
-     (doseq [[id [num-tasks secs]] (meter-graph root)]
-       (log/log level (format "Node id %s has rate %.3f (%d/%.3f)"
-			      id (/ num-tasks (double secs)) num-tasks secs))))
-  ([root] (meter-report root :info)))
 
 (defn run-graph
   "launches in DFS order the vertex processs and returns a map from

@@ -113,8 +113,9 @@
 		 run-graph)
 	out (-> root terminal-queues :done)]
     (wait-until #(= (count out) 10000) 10)
-    (meter-report root)
+    (println (meter-graph root))
     (is (every?
-	 (fn [[_ [num-tasks secs]]]
-	   (= num-tasks 10000))
+	 (fn [[id {:keys [num-out-tasks, num-in-tasks]}]]
+	   (and (= num-out-tasks 10000)
+		(= num-in-tasks 10000)))
 	 (meter-graph root)))))
