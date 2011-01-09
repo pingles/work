@@ -112,7 +112,7 @@
 		 (add-edge (terminal-node :id :done))
 		 run-graph)
 	out (-> root terminal-queues :done)]
-    (wait-until #(= (count out) 10000) 10)
+    (wait-until #(= (count out) 10000) 20)
     (println (meter-graph root))
     (is (every?
 	 (fn [[id {:keys [num-out-tasks, num-in-tasks]}]]

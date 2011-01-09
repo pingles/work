@@ -98,28 +98,36 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   "launch vertex return vertex with :pool field"
   [{:keys [f,inbox,outbox,threads,sleep-time,exec,make-tasks]
     :or {threads (work/available-processors)
-	 sleep-time 10
+	 sleep-time 10	  
 	 exec work/sync}
      :as vertex}]
   (when (instance? Vertex vertex)
-    (let [meter {:num-in-tasks (atom 0)
-		 :num-err-tasks (atom 0)
-		 :num-out-tasks (atom 0)}
-	  
-	  args {:f (with-ex
-		     (fn [e f args]
+    (let [meter (atom {:num-in-tasks 0
+		       :num-err-tasks 0
+		       :inbox-size 0
+		       :num-out-tasks 0})	  
+	  args {:f (with-ex ; if client has own error handling, 
+		     (fn [e f args] ; we don't count that
 		       ((logger) e f args) 
-		       (swap! (:num-err-tasks meter) inc))
+		       (swap! meter #(update-in % [:num-err-tasks] inc)))
 		     f)
 		:in (with-log
 		      (fn [& args]		       
 		       (let [input (apply poll-message inbox args)]
 			 (when (and input (not= input :eof))
-			   (swap! (:num-in-tasks meter) inc))
+			   (swap! meter #(-> %
+					    (update-in [:num-in-tasks] inc)
+					    (update-in [:inbox-size]
+						       (constantly (when (instance? InboxQueue inbox)
+								     (-> inbox :q count)))))))
 			 input)))		    	
 		:out (with-log
 		       (fn [x]
-			(swap! (:num-out-tasks meter) inc)
+			 (swap! meter #(-> %
+					    (update-in [:num-out-tasks] inc)
+					    (update-in [:inbox-size]
+						       (constantly (when (instance? InboxQueue inbox)
+								     (-> inbox :q count))))))
 			(doseq [task (make-tasks x)]
 			  (broadcast outbox vertex task))))
 		:sleep-time sleep-time
@@ -128,7 +136,7 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
       (assoc vertex
 	:meter meter
 	:pool (future (work/queue-work args))))))
-		   
+
 (defn node
   "make a node. only required argument is the fn f at the vertex.
    you can optionally pass in inbox, process, id, or outbox
@@ -259,7 +267,7 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
    and secs is the # of seconds spent processing."
   [root]
   (->> (all-vertices root)
-       (map (fn [{:keys [id, meter]}] [id (map-map deref meter)]) )
+       (map (fn [{:keys [id, meter]}] [id @meter]) )
        (into {})))
 
 (defn run-graph
