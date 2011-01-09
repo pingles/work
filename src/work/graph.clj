@@ -94,11 +94,24 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
   [vertex]
   (-?> vertex :pool deref work/two-phase-shutdown))
 
+(defn- execute-task? [vertex]
+  (not
+   (and (instance? DefaultOutbox (:outbox vertex))
+	(some
+	 (fn [edge]
+	   (let [trg (:to edge)]
+	     (and (instance? Vertex trg)
+		  (instance? InboxQueue (:inbox trg))
+		  (>= (-> trg :inbox :q seq count)
+		      (or (-> trg :max-inbox-size) (* 3 (or (:threads trg)
+							    (work/available-processors))))))))
+	 (-> vertex :outbox :out-edges)))))
+
 (defn- run-vertex
   "launch vertex return vertex with :pool field"
   [{:keys [f,inbox,outbox,threads,sleep-time,exec,make-tasks]
     :or {threads (work/available-processors)
-	 sleep-time 10	  
+	 sleep-time 10
 	 exec work/sync}
      :as vertex}]
   (when (instance? Vertex vertex)
@@ -108,28 +121,33 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 		       :num-out-tasks 0})	  
 	  args {:f (with-ex ; if client has own error handling, 
 		     (fn [e f args] ; we don't count that
-		       ((logger) e f args) 
+		       ((logger) e f args)
 		       (swap! meter #(update-in % [:num-err-tasks] inc)))
-		     f)
+		     (fn [task]
+		       (when task (f task))))
 		:in (with-log
 		      (fn [& args]		       
-		       (let [input (apply poll-message inbox args)]
-			 (when (and input (not= input :eof))
-			   (swap! meter #(-> %
-					    (update-in [:num-in-tasks] inc)
-					    (update-in [:inbox-size]
-						       (constantly (when (instance? InboxQueue inbox)
-								     (-> inbox :q count)))))))
-			 input)))		    	
+			(if (not (execute-task? vertex))
+			  (Thread/yield)
+			  (let [input (apply poll-message inbox args)]
+			    (when (and input (not= input :eof))
+			      (swap! meter #(-> %
+						(update-in [:num-in-tasks] inc)
+						(update-in [:inbox-size]
+							   (constantly (when (instance? InboxQueue inbox)
+									 (-> inbox :q count)))))))
+			    input))))		    	
 		:out (with-log
 		       (fn [x]
-			 (swap! meter #(-> %
-					    (update-in [:num-out-tasks] inc)
-					    (update-in [:inbox-size]
-						       (constantly (when (instance? InboxQueue inbox)
-								     (-> inbox :q count))))))
-			(doseq [task (make-tasks x)]
-			  (broadcast outbox vertex task))))
+			 (when (not (nil? x))
+			   (swap! meter
+				  #(-> %
+				       (update-in [:num-out-tasks] inc)
+				       (update-in [:inbox-size]
+						  (constantly (when (instance? InboxQueue inbox)
+								(-> inbox :q count))))))
+			  (doseq [task (make-tasks x)]
+			    (broadcast outbox vertex task)))))
 		:sleep-time sleep-time
 		:threads threads
 		:exec exec}]
