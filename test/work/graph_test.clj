@@ -118,4 +118,10 @@
 	 (fn [[id {:keys [num-out-tasks, num-in-tasks]}]]
 	   (and (= num-out-tasks 10000)
 		(= num-in-tasks 10000)))
+	 (meter-graph root)))
+    (reset-meter root)
+    (is (every?
+	 (fn [[id {:keys [num-out-tasks, num-in-tasks]}]]
+	   (and (zero? num-out-tasks)
+		(zero? num-in-tasks)))
 	 (meter-graph root)))))

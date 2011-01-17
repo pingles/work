@@ -5,6 +5,7 @@
 
 (defprotocol Queue
   (poll [q] "poll")
+  (alive? [this] "is the queue alive?")
   (peek [q] "see top elem without return")
   (offer [q x] "offer"))
 
@@ -15,7 +16,8 @@
 	 (if-let [r (.offer this x)]
 	   r
 	   (throw (Exception. "Queue offer failed"))))
-  (peek [this] (.peek this)))
+  (peek [this] (.peek this))
+  (alive? [this] (nil? (.peek this))))
 
 (defn with-adapter
   [in-adapt out-adapt queue]

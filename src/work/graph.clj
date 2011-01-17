@@ -288,6 +288,16 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
        (map (fn [{:keys [id, meter]}] [id @meter]) )
        (into {})))
 
+(defn reset-meter
+  [root]
+  (doseq [v (all-vertices root)
+	  :let [m (:meter v)]]
+    (swap! m (constantly
+		  {:num-in-tasks 0
+		   :num-err-tasks 0
+		   :inbox-size 0
+		   :num-out-tasks 0}))))
+
 (defn run-graph
   "launches in DFS order the vertex processs and returns a map from
    terminal node ids (possibly gensymd) to their out-queues"
