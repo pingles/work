@@ -1,6 +1,6 @@
 (ns work.aggregators
   (:use [plumbing.core]
-	[work.core :only [work available-processors map-work queue-work]]
+	[work.core :only [available-processors seq-work map-work]]
 	[work.queue :only [local-queue]]))
 
 (defn- channel-as-lazy-seq
@@ -58,6 +58,6 @@
   (fn [ch]
     (let [res (atom nil)
 	  pingback (fn [v] (swap! res agg v))]
-      (work (repeatedly num-threads #(abelian-worker ch fetch agg pingback))
+      (seq-work (repeatedly num-threads #(abelian-worker ch fetch agg pingback))
 	    num-threads)
       @res)))

@@ -107,53 +107,69 @@ returns a fn taking args, dispatching on args, and applying dispatch fn to args.
 							    (work/available-processors))))))))
 	 (-> vertex :outbox :out-edges)))))
 
+(defn wrap-fn [f meter]
+  (with-ex ; if client has own error handling, 
+    (fn [e f args] ; we don't count that
+      ((logger) e f args)
+      (swap! meter #(update-in % [:num-err-tasks] inc)))
+    (fn [task]
+      (when task (f task)))))
+
+(defn wrap-in [vertex inbox meter]
+  (with-log
+    (fn [& args]		       
+      (if (not (execute-task? vertex))
+	(Thread/yield)
+	(let [input (apply poll-message inbox args)]
+	  (when (and input (not= input :eof))
+	    (swap! meter #(-> %
+			      (update-in [:num-in-tasks] inc)
+			      (update-in [:inbox-size]
+					 (constantly
+					  (when (instance?
+						 InboxQueue inbox)
+					    (-> inbox :q count)))))))
+	  input)))))
+
+(defn wrap-out [vertex inbox outbox meter make-tasks]
+  (with-log
+    (fn [x]
+      (when (not (nil? x))
+	(swap! meter
+	       #(-> %
+		    (update-in [:num-out-tasks] inc)
+		    (update-in [:inbox-size]
+			       (constantly
+				(when
+				    (instance? InboxQueue inbox)
+				  (-> inbox :q count))))))
+	(doseq [task (make-tasks x)]
+	  (broadcast outbox vertex task))))))
+
 (defn- run-vertex
   "launch vertex return vertex with :pool field"
   [{:keys [f,inbox,outbox,threads,sleep-time,exec,make-tasks]
     :or {threads (work/available-processors)
 	 sleep-time 10
 	 exec work/sync}
-     :as vertex}]
+    :as vertex}]
   (when (instance? Vertex vertex)
     (let [meter (atom {:num-in-tasks 0
 		       :num-err-tasks 0
 		       :inbox-size 0
 		       :num-out-tasks 0})	  
-	  args {:f (with-ex ; if client has own error handling, 
-		     (fn [e f args] ; we don't count that
-		       ((logger) e f args)
-		       (swap! meter #(update-in % [:num-err-tasks] inc)))
-		     (fn [task]
-		       (when task (f task))))
-		:in (with-log
-		      (fn [& args]		       
-			(if (not (execute-task? vertex))
-			  (Thread/yield)
-			  (let [input (apply poll-message inbox args)]
-			    (when (and input (not= input :eof))
-			      (swap! meter #(-> %
-						(update-in [:num-in-tasks] inc)
-						(update-in [:inbox-size]
-							   (constantly (when (instance? InboxQueue inbox)
-									 (-> inbox :q count)))))))
-			    input))))		    	
-		:out (with-log
-		       (fn [x]
-			 (when (not (nil? x))
-			   (swap! meter
-				  #(-> %
-				       (update-in [:num-out-tasks] inc)
-				       (update-in [:inbox-size]
-						  (constantly (when (instance? InboxQueue inbox)
-								(-> inbox :q count))))))
-			  (doseq [task (make-tasks x)]
-			    (broadcast outbox vertex task)))))
-		:sleep-time sleep-time
-		:threads threads
-		:exec exec}]
-      (assoc vertex
-	:meter meter
-	:pool (future (work/queue-work args))))))
+	  work-producer
+	  (work/work (fn []
+		  {:f (wrap-fn f meter) 
+		   :in (wrap-in vertex inbox meter)
+		   :out (wrap-out vertex inbox outbox meter make-tasks)
+		   :exec exec})
+		(work/sleeper sleep-time))]
+	  (assoc vertex
+	    :meter meter
+	    :pool (future (work/queue-work
+			   work-producer
+			   threads))))))
 
 (defn node
   "make a node. only required argument is the fn f at the vertex.

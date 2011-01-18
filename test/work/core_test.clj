@@ -32,9 +32,9 @@
 	input (q/local-queue input-data)
 	output (q/local-queue)
 	pool (future (work/queue-work
-		      {:f #(* 10 %)
+		      (work/work (fn [] {:f #(* 10 %)
 		       :in #(q/poll input)
-		       :out #(q/offer output %)}))]
+		       :out #(q/offer output %)}))))]
     (is (= (range 10 1010 10)
 	   (wait-for-complete-results output (count input-data))))))
 
@@ -44,12 +44,13 @@
 	response-q (q/local-queue)
 	pool (future
 	      (work/queue-work
-	       {:f #(do (Thread/sleep 1000) (* 10 %))
-	       :in #(q/poll request-q)
-	       :out #(q/offer response-q %)
-	       :threads 10}))]
-  (is (= (range 10 210 10)
-         (wait-for-complete-results response-q (count input-data))))))
+	       (work/work (fn []
+			    {:f #(do (Thread/sleep 1000) (* 10 %))
+			     :in #(q/poll request-q)
+			     :out #(q/offer response-q %)}))
+	       10))]
+    (is (= (range 10 210 10)
+	   (wait-for-complete-results response-q (count input-data))))))
 
 (deftest async-queue-work-test
   (let [input-data (range 1 101 1)
@@ -57,12 +58,13 @@
         response-q (q/local-queue)
         pool (future
               (work/queue-work
+	       (work/work (fn []
                {:f (fn [task put-done]
                      (put-done (* 10 task)))
                 :in #(q/poll request-q)
                 :out #(q/offer response-q %)
-                :threads 10
-                :exec work/async}))]
+                :exec work/async}))
+	       10))]
     (is (= (range 10 1010 10)
            (wait-for-complete-results response-q (count input-data))))))
 
@@ -72,13 +74,14 @@
         response-q (q/local-queue)
         pool (future
               (work/queue-work
-               {:f (fn [task put-done]
-                     (Thread/sleep 1000)
-                     (put-done (* 10 task)))
-                :in #(q/poll request-q)
-                :out #(q/offer response-q %)
-                :threads 10
-                :exec work/async}))]
+	       (work/work (fn []
+			    {:f (fn [task put-done]
+				  (Thread/sleep 1000)
+				  (put-done (* 10 task)))
+			     :in #(q/poll request-q)
+			     :out #(q/offer response-q %)
+			     :exec work/async}))
+	       10))]
     (is (= (range 10 210 10)
            (wait-for-complete-results response-q (count input-data))))))
 
@@ -92,24 +95,27 @@
 	response-q (q/local-queue)
 	pool (future
 	      (work/queue-work
+	       (work/work (fn []
 	       {:f msg/clj-worker
 	       :in #(q/poll request-q)
-	       :out #(q/offer response-q %) 
-	       :threads 10}))]
+	       :out #(q/offer response-q %) }))
+	       10))]
     (is (= (range 10 1010 10)
 	   (wait-for-complete-results response-q (count input-data))))))
 
 (deftest json-fns-over-the-queue
   (let [input-data (range 1 101 1)
 	request-q (q/local-queue (map #(msg/send-json %1 %2)
-					 (repeat #'times10)
-					 input-data))
+				      (repeat #'times10)
+				      input-data))
 	response-q (q/local-queue)
 	pool (future
 	      (work/queue-work
-	       {:f msg/json-worker
-	       :in #(q/poll request-q)
-	       :out #(q/offer response-q %) 
-	       :threads 10}))]
+	       (work/work
+		(fn []
+		  {:f msg/json-worker
+		   :in #(q/poll request-q)
+		   :out #(q/offer response-q %) }))
+	       10))]
     (is (= (range 10 1010 10)
 	   (wait-for-complete-results response-q (count input-data))))))
