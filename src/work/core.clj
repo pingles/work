@@ -29,15 +29,50 @@
                 (schedule-work pool f rate)))
        pool)))
 
+(defn shutdown
+  "Initiates an orderly shutdown in which previously submitted tasks are executed, but no new tasks will be accepted. Invocation has no additional effect if already shut down."
+  [executor]
+  (do (.shutdown executor) executor))
+
+(defn shutdown-now [executor]
+  "Attempts to stop all actively executing tasks, halts the processing of waiting tasks, and returns a list of the tasks that were awaiting execution.
+
+  There are no guarantees beyond best-effort attempts to stop processing actively executing tasks. For example, typical implementations will cancel via Thread.interrupt(), so if any tasks mask or fail  to respond to interrupts, they may never terminate."
+  (do (.shutdownNow executor) executor))
+
+(defn two-phase-shutdown
+  "Shuts down an ExecutorService in two phases.
+  Call shutdown to reject incoming tasks.
+  Calling shutdownNow, if necessary, to cancel any lingering tasks.
+  From: http://download-llnw.oracle.com/javase/6/docs/api/java/util/concurrent/ExecutorService.html"
+  [^ExecutorService pool]
+  (do (.shutdown pool)  ;; Disable new tasks from being submitted
+      (with-ex ;; Wait a while for existing tasks to terminate
+	(fn [e _ _]
+	  (when (instance? InterruptedException e)
+	    ;;(Re-)Cancel if current thread also interrupted
+	    (.shutdownNow pool)
+	    ;; Preserve interrupt status
+	    (.interrupt (Thread/currentThread))))	
+        #(if (not (.awaitTermination pool 60 TimeUnit/SECONDS))
+	  (.shutdownNow pool) ; // Cancel currently executing tasks
+          ;;wait a while for tasks to respond to being cancelled
+          (if (not (.awaitTermination pool 60 TimeUnit/SECONDS))
+            (println "Pool did not terminate" *err*))))))
+
+
 (defn- work*
   [fns threads]
   (let [pool (Executors/newFixedThreadPool threads)]
-    (.invokeAll pool ^java.util.Collection fns)))
+    [pool (.invokeAll pool ^java.util.Collection fns)]))
 
 (defn work
   "takes a seq of fns executes them in parallel on n threads, blocking until all work is done."
   [fns threads]
-  (map #(.get %) (work* fns threads)))
+  (let [[pool futures] (work* fns threads)
+	res (map (fn [^java.util.concurrent.Future f] (.get f)) futures)]
+    (shutdown-now pool)
+    res))
 
 (defn map-work
   "like clojure's map or pmap, but takes a number of threads, executes eagerly, and blocks.
@@ -121,33 +156,3 @@
         futures (doall (map #(.submit pool %) fns))]
     pool))
 
-(defn shutdown
-  "Initiates an orderly shutdown in which previously submitted tasks are executed, but no new tasks will be accepted. Invocation has no additional effect if already shut down."
-  [executor]
-  (do (.shutdown executor) executor))
-
-(defn shutdown-now [executor]
-  "Attempts to stop all actively executing tasks, halts the processing of waiting tasks, and returns a list of the tasks that were awaiting execution.
-
-  There are no guarantees beyond best-effort attempts to stop processing actively executing tasks. For example, typical implementations will cancel via Thread.interrupt(), so if any tasks mask or fail  to respond to interrupts, they may never terminate."
-  (do (.shutdownNow executor) executor))
-
-(defn two-phase-shutdown
-  "Shuts down an ExecutorService in two phases.
-  Call shutdown to reject incoming tasks.
-  Calling shutdownNow, if necessary, to cancel any lingering tasks.
-  From: http://download-llnw.oracle.com/javase/6/docs/api/java/util/concurrent/ExecutorService.html"
-  [^ExecutorService pool]
-  (do (.shutdown pool)  ;; Disable new tasks from being submitted
-      (with-ex ;; Wait a while for existing tasks to terminate
-	(fn [e _ _]
-	  (when (instance? InterruptedException e)
-	    ;;(Re-)Cancel if current thread also interrupted
-	    (.shutdownNow pool)
-	    ;; Preserve interrupt status
-	    (.interrupt (Thread/currentThread))))	
-        #(if (not (.awaitTermination pool 60 TimeUnit/SECONDS))
-	  (.shutdownNow pool) ; // Cancel currently executing tasks
-          ;;wait a while for tasks to respond to being cancelled
-          (if (not (.awaitTermination pool 60 TimeUnit/SECONDS))
-            (println "Pool did not terminate" *err*))))))
