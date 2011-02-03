@@ -60,7 +60,6 @@
           (if (not (.awaitTermination pool 60 TimeUnit/SECONDS))
             (println "Pool did not terminate" *err*))))))
 
-
 (defn- work*
   [fns threads]
   (let [pool (Executors/newFixedThreadPool threads)]
@@ -70,8 +69,10 @@
   "takes a seq of fns executes them in parallel on n threads, blocking until all work is done."
   [fns threads]
   (let [[pool futures] (work* fns threads)
-	res (map (fn [^java.util.concurrent.Future f] (.get f)) futures)]
-    (shutdown-now pool)
+	res (map
+	     (fn [^java.util.concurrent.Future f] (.get f))
+	     futures)]
+    (shutdown pool)
     res))
 
 (defn map-work
