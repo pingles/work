@@ -106,18 +106,18 @@
     (is (= (sort @a) [1 2 3 4 5]))))
 
 (deftest meter-test
-  (let [root (-> (new-graph :input-data (range 10000))
+  (let [root (-> (new-graph :input-data (range 1000))
 		 (add-edge-> (node inc :id :inc))
 		 (add-edge-> (node (partial + 2) :id :+2))
 		 (add-edge (terminal-node :id :done))
 		 run-graph)
 	out (-> root terminal-queues :done)]
-    (wait-until #(= (count out) 10000) 20)
+    (wait-until #(= (count out) 1000) 20)
     (println (meter-graph root))
     (is (every?
 	 (fn [[id {:keys [num-out-tasks, num-in-tasks]}]]
-	   (and (= num-out-tasks 10000)
-		(= num-in-tasks 10000)))
+	   (and (= num-out-tasks 1000)
+		(= num-in-tasks 1000)))
 	 (meter-graph root)))
     (reset-meter root)
     (is (every?
