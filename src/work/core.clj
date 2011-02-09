@@ -97,19 +97,6 @@
 	     num-threads
 	     xs))))
 
-(defn do-work
-  "like clojure's dorun, for side effects only, but takes a number of threads."
-  [^java.lang.Runnable f num-threads xs]
-  (if (seq? num-threads)
-    (do (log/warn "do-work arguments have changed, now num-threads is 2nd argument. xs comes last")	
-	(recur f xs num-threads))
-    (let [pool (Executors/newFixedThreadPool num-threads)
-	  _ (doall (map
-		    (fn [x]
-		      (let [^java.lang.Runnable fx #(f x)]
-			(.submit pool fx)))
-		    xs))]
-      pool)))
 
 ;;Steps toward pulling out composiiton strategy.  need to do same for input so calcs ca be push through or pill through.
 (defn async [f task out] (f task out))
@@ -128,6 +115,8 @@
     (if-let [task (in)]
       (exec f task out)
       (yield)))))
+
+
 
 ;;TODO; unable to shutdown pool. seems recursive fns are not responding to interrupt. http://download.oracle.com/javase/tutorial/essential/concurrency/interrupt.html
 ;;TODO: use another thread to check futures and make sure workers don't fail, don't hang, and call for work within their time limit?
@@ -152,4 +141,16 @@
                     (fn [] (work) (recur)))
         futures (doall (map #(.submit pool %) fns))]
     pool))
+
+(defn do-work [^java.lang.Runnable f num-threads tasks]
+  (let [in (local-queue tasks)
+	latch (java.util.concurrent.CountDownLatch. (int (count tasks)))
+	pool (queue-work
+	      (fn []
+		(when-let [x (poll in)]
+		  (f x)
+		  (.countDown latch)))
+	      num-threads)]
+    (.await latch)
+    (two-phase-shutdown pool)))
 
