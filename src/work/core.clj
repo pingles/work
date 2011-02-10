@@ -146,10 +146,15 @@
 
 (defn do-work
   ([f num-threads tasks]
-     (let [in (local-queue tasks)
+     (let [tasks (seq tasks)
+	   in (local-queue tasks)
 	   latch (java.util.concurrent.CountDownLatch. (int (count tasks)))
 	   pool (Executors/newFixedThreadPool num-threads)]
-       (doseq [t tasks :let [work (fn [] (.countDown latch) (f t))]]	       
+       (doseq [t tasks :let [work (fn []
+				    (try
+				      (f t)
+				      (finally
+				        (.countDown latch))))]]	       
 	 (.submit pool ^java.lang.Runnable work))
        (.await latch)
        (shutdown-now pool)))
