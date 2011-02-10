@@ -27,6 +27,10 @@
   (is (= (range 10 1010 10)
 	 (wait-for-complete-results response-q (count input-data))))))
 
+(deftest reduce-work-test
+  (is (= (range 10)
+	 (sort (work/reduce-work conj (range 10))))))
+
 (deftest queue-work-test
   (let [input-data (range 1 101 1)
 	input (q/local-queue input-data)

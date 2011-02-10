@@ -6,7 +6,7 @@
         work.message
         clj-serializer.core
         [clojure.contrib.def :only [defvar]]
-        [plumbing.core :only [print-all with-ex with-log]])
+        [plumbing.core :only [print-all with-ex with-log with-accumulator]])
   (:import (java.util.concurrent
             Executors ExecutorService TimeUnit
             LinkedBlockingQueue)
@@ -97,19 +97,6 @@
 	     num-threads
 	     xs))))
 
-(defn do-work
-  "like clojure's dorun, for side effects only, but takes a number of threads."
-  [^java.lang.Runnable f num-threads xs]
-  (if (seq? num-threads)
-    (do (log/warn "do-work arguments have changed, now num-threads is 2nd argument. xs comes last")	
-	(recur f xs num-threads))
-    (let [pool (Executors/newFixedThreadPool num-threads)
-	  _ (doall (map
-		    (fn [x]
-		      (let [^java.lang.Runnable fx #(f x)]
-			(.submit pool fx)))
-		    xs))]
-      pool)))
 
 ;;Steps toward pulling out composiiton strategy.  need to do same for input so calcs ca be push through or pill through.
 (defn async [f task out] (f task out))
@@ -128,6 +115,8 @@
     (if-let [task (in)]
       (exec f task out)
       (yield)))))
+
+
 
 ;;TODO; unable to shutdown pool. seems recursive fns are not responding to interrupt. http://download.oracle.com/javase/tutorial/essential/concurrency/interrupt.html
 ;;TODO: use another thread to check futures and make sure workers don't fail, don't hang, and call for work within their time limit?
@@ -148,8 +137,36 @@
   [work & [threads]]
   (let [threads (or threads (available-processors))
         pool (Executors/newFixedThreadPool threads)
-        fns (repeat threads
-                    (fn [] (work) (recur)))
-        futures (doall (map #(.submit pool %) fns))]
+        ^java.lang.Runnable f
+	  (fn [] (when-not (.isShutdown pool)
+		   (work)
+		   (recur)))]
+    (dotimes [_ threads] (.submit pool f))     
     pool))
+
+(defn do-work
+  ([f num-threads tasks]
+     (let [tasks (seq tasks)
+	   in (local-queue tasks)
+	   latch (java.util.concurrent.CountDownLatch. (int (count tasks)))
+	   pool (Executors/newFixedThreadPool num-threads)]
+       (doseq [t tasks :let [work (fn []
+				    (try
+				      (f t)
+				      (finally
+				        (.countDown latch))))]]	       
+	 (.submit pool ^java.lang.Runnable work))
+       (.await latch)
+       (shutdown-now pool)))
+  ([f tasks] (do-work f (available-processors) tasks)))
+
+(defn reduce-work
+  ([f init threads xs]
+     (let [[f-accum res] (with-accumulator f init)]
+       (do-work f-accum threads xs)
+       @res))
+  ([f threads xs] (reduce-work f nil threads xs))
+  ([f xs] (reduce-work f (available-processors) xs)))
+
+
 
