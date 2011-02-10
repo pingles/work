@@ -137,23 +137,20 @@
   [work & [threads]]
   (let [threads (or threads (available-processors))
         pool (Executors/newFixedThreadPool threads)
-        fns (repeat threads
-                    (fn [] (when-not (.isShutdown pool)
-			     (work)
-			     (recur))))]
-    (doseq [f fns] (.submit pool ^java.lang.Runnable f))
+        ^java.lang.Runnable f
+	  (fn [] (when-not (.isShutdown pool)
+		   (work)
+		   (recur)))]
+    (dotimes [_ threads] (.submit pool f))     
     pool))
 
 (defn do-work
-  ([^java.lang.Runnable f num-threads tasks]
+  ([f num-threads tasks]
      (let [in (local-queue tasks)
 	   latch (java.util.concurrent.CountDownLatch. (int (count tasks)))
-	   pool (queue-work
-		 (fn []
-		   (when-let [x (poll in)]
-		     (f x)
-		     (.countDown latch)))
-		 num-threads)]
+	   pool (Executors/newFixedThreadPool num-threads)]
+       (doseq [t tasks :let [work (fn [] (.countDown latch) (f t))]]	       
+	 (.submit pool ^java.lang.Runnable work))
        (.await latch)
        (shutdown-now pool)))
   ([f tasks] (do-work f (available-processors) tasks)))
@@ -165,4 +162,6 @@
        @res))
   ([f threads xs] (reduce-work f nil threads xs))
   ([f xs] (reduce-work f (available-processors) xs)))
+
+
 
