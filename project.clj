@@ -17,4 +17,6 @@
                    :integration :integration
                    :system :system
                    :independent :independent
-                   :all (fn [_] true)})
+                   :all (fn [_] true)}
+  :repositories {"snapshots" "http://mvn.getwoven.com/repos/woven-public-snapshots"
+                 "releases" "http://mvn.getwoven.com/repos/woven-public-releases"})
