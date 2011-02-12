@@ -65,18 +65,17 @@
       @res)))
 
 (defn with-flush [bucket merge flush? secs]
-  (let [mem-bucket (atom (hashmap-bucket))]
-    (schedule-work #(when (flush?)
-		      (let [cur @mem-bucket]
-			(reset! mem-bucket (hashmap-bucket))
-			(bucket-merge-to! merge cur bucket)
-			(bucket-sync bucket)))
-		 secs)
-    (reify store.api.IWriteBucket
-	   (bucket-put [this k v]
-		       (bucket-put @mem-bucket k v))
-	   (bucket-update [this k f]
-			  (bucket-update @mem-bucket k f))
-	   (bucket-sync [this]
-		  (bucket-merge-to! merge @mem-bucket bucket)
-		  (bucket-sync bucket)))))
+  (let [mem-bucket (atom (hashmap-bucket))
+	do-flush! (fn []
+		    (let [cur @mem-bucket]
+		      (bucket-merge-to! merge cur bucket)
+		      ((with-log :info bucket-sync) bucket)))
+	pool (schedule-work #(when (flush?) (do-flush!))
+			    secs)]    
+    [(reify store.api.IWriteBucket
+	     (bucket-put [this k v]
+			 (bucket-put @mem-bucket k v))
+	     (bucket-update [this k f]
+			    (bucket-update @mem-bucket k f))
+	     (bucket-sync [this] (do-flush!)))
+     pool]))

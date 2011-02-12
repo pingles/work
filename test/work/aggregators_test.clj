@@ -1,7 +1,7 @@
 (ns work.aggregators-test
   (:use clojure.test
         work.aggregators
-	work.core))
+	store.api))
 
 (defn commutativie-agg-test [mk-agg]
   (let [sum-agg (mk-agg identity (fnil + 0))
@@ -18,3 +18,10 @@
   (commutativie-agg-test ordered-agg)
   (let [sub-agg (ordered-agg identity (fnil - 0))]
     (is (= (sub-agg (channel-from-seq [1 2 3])) -4))))
+
+(deftest with-flush-test
+  (let [b (hashmap-bucket)
+	[b-flush pool] (with-flush b (fn [x y] y) (constantly true) 1)]
+    (bucket-put b :k :v)
+    (Thread/sleep 3000)
+    (is (= (bucket-get b :k) :v))))
