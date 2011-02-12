@@ -61,3 +61,16 @@
       (seq-work (repeatedly num-threads #(abelian-worker ch fetch agg pingback))
 	    num-threads)
       @res)))
+
+(defn with-flush [bucket merge flush? secs]
+  (let [mem-bucket (atom (hashmap-bucket))]
+    (schedule-work #(when (flush?)
+		      (let [cur @mem-bucket]
+			(reset! mem-bucket (hashmap-bucket))
+			(bucket-merge-to! merge cur bucket)))
+		 secs)
+    (reify store.api.IBucket
+	   (bucket-put [this k v]
+		       (bucket-put @mem-bucket k v))
+	   (bucket-update [this k f]
+			(bucket-update @mem-bucket k f)))))
