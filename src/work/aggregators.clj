@@ -1,6 +1,8 @@
 (ns work.aggregators
   (:use [plumbing.core]
-	[work.core :only [available-processors seq-work map-work]]
+	[store.api :only [hashmap-bucket bucket-merge-to!
+			  bucket-put bucket-update]]
+	[work.core :only [available-processors seq-work map-work schedule-work]]
 	[work.queue :only [local-queue]]))
 
 (defn- channel-as-lazy-seq
@@ -69,7 +71,7 @@
 			(reset! mem-bucket (hashmap-bucket))
 			(bucket-merge-to! merge cur bucket)))
 		 secs)
-    (reify store.api.IBucket
+    (reify store.api.IWriteBucket
 	   (bucket-put [this k v]
 		       (bucket-put @mem-bucket k v))
 	   (bucket-update [this k f]
