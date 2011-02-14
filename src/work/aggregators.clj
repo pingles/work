@@ -1,8 +1,9 @@
 (ns work.aggregators
   (:use [plumbing.core]
 	[store.api :only [hashmap-bucket bucket-merge-to!
-			  bucket-put bucket-update]]
-	[work.core :only [available-processors seq-work map-work schedule-work]]
+			  bucket-put bucket-update bucket-sync]]
+	[work.core :only [available-processors seq-work
+			  map-work schedule-work]]
 	[work.queue :only [local-queue]]))
 
 (defn- channel-as-lazy-seq
@@ -65,15 +66,17 @@
       @res)))
 
 (defn with-flush [bucket merge flush? secs]
-  (let [mem-bucket (atom (hashmap-bucket))]
-    (schedule-work #(when (flush?)
-		      (let [cur @mem-bucket]
-			(reset! mem-bucket (hashmap-bucket))
-			(bucket-merge-to! merge cur bucket))
-		      (System/gc))
-		 secs)
-    (reify store.api.IWriteBucket
-	   (bucket-put [this k v]
-		       (bucket-put @mem-bucket k v))
-	   (bucket-update [this k f]
-			(bucket-update @mem-bucket k f)))))
+  (let [mem-bucket (java.util.concurrent.atomic.AtomicReference.
+		    (hashmap-bucket))
+	pool (schedule-work #(when (flush?)
+                     (let [cur (.get mem-bucket)]
+                       (.set mem-bucket (hashmap-bucket))
+                       (bucket-merge-to! merge cur bucket))
+                     (System/gc))
+                secs)]
+     [(reify store.api.IWriteBucket
+          (bucket-put [this k v]
+                      (bucket-put (.get mem-bucket) k v))
+          (bucket-update [this k f]
+			 (bucket-update (.get mem-bucket) k f)))
+      pool]))
