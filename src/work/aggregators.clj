@@ -69,7 +69,8 @@
     (schedule-work #(when (flush?)
 		      (let [cur @mem-bucket]
 			(reset! mem-bucket (hashmap-bucket))
-			(bucket-merge-to! merge cur bucket)))
+			(bucket-merge-to! merge cur bucket))
+		      (System/gc))
 		 secs)
     (reify store.api.IWriteBucket
 	   (bucket-put [this k v]
