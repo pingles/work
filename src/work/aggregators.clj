@@ -68,15 +68,20 @@
 (defn with-flush [bucket merge flush? secs]
   (let [mem-bucket (java.util.concurrent.atomic.AtomicReference.
 		    (hashmap-bucket))
-	pool (schedule-work #(when (flush?)
-                     (let [cur (.get mem-bucket)]
+	do-flush! (fn []
+		    (let [cur (.get mem-bucket)]
                        (.set mem-bucket (hashmap-bucket))
                        (bucket-merge-to! merge cur bucket))
-                     (System/gc))
+		       (System/gc))
+	pool (schedule-work
+	        #(when (flush?)
+                     (do-flush!))
                 secs)]
      [(reify store.api.IWriteBucket
           (bucket-put [this k v]
                       (bucket-put (.get mem-bucket) k v))
           (bucket-update [this k f]
-			 (bucket-update (.get mem-bucket) k f)))
+			 (bucket-update (.get mem-bucket) k f))
+	  (bucket-sync [this]
+		       (do-flush!)))
       pool]))
