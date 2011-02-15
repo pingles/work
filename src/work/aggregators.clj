@@ -78,8 +78,6 @@
                      (do-flush!))
                 secs)]
      [(reify store.api.IWriteBucket
-          (bucket-put [this k v]
-                      (bucket-put (.get mem-bucket) k v))
           (bucket-update [this k f]
 			 (bucket-update (.get mem-bucket) k f))
 	  (bucket-sync [this]
