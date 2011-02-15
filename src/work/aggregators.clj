@@ -83,5 +83,6 @@
           (bucket-update [this k f]
 			 (bucket-update (.get mem-bucket) k f))
 	  (bucket-sync [this]
-		       (do-flush!)))
+		       (do-flush!)
+		       (silent bucket-sync bucket)))
       pool]))
