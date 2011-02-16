@@ -21,7 +21,7 @@
 
 (deftest with-flush-test
   (let [b (hashmap-bucket)
-	[b-flush pool] (with-flush b (fn [x y] y) (constantly true) 1)]
+	[b-flush pool] (with-flush b (fn [_ x y] y) (constantly true) 1)]
     (bucket-put b :k :v)
     (Thread/sleep 3000)
     (is (= (bucket-get b :k) :v))))
