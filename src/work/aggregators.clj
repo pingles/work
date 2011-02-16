@@ -1,6 +1,6 @@
 (ns work.aggregators
   (:use [plumbing.core]
-	[store.api :only [hashmap-bucket bucket-merge-to!
+	[store.api :only [hashmap-bucket bucket-merge-to! bucket-close
 			  bucket-put bucket-update bucket-sync]]
 	[work.core :only [available-processors seq-work
 			  map-work schedule-work]]
@@ -68,11 +68,8 @@
 (defn with-flush [bucket merge flush? secs]
   (let [mem-bucket (java.util.concurrent.atomic.AtomicReference.
 		    (hashmap-bucket))
-	do-flush! (fn []
-		    (let [cur (.get mem-bucket)]
-                       (.set mem-bucket (hashmap-bucket))
-                       (bucket-merge-to! merge cur bucket))
-		       (System/gc))
+	do-flush! #(let [cur (.getAndSet mem-bucket (hashmap-bucket))]
+		     (bucket-merge-to! merge cur bucket))
 	pool (schedule-work
 	        #(when (flush?)
                      (do-flush!))
@@ -82,5 +79,6 @@
 			 (bucket-update (.get mem-bucket) k f))
 	  (bucket-sync [this]
 		       (do-flush!)
-		       (silent bucket-sync bucket)))
+		       (silent bucket-sync bucket))
+	  (bucket-close [this] (bucket-close bucket)))
       pool]))
