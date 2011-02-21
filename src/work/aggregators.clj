@@ -1,69 +1,17 @@
 (ns work.aggregators
+  (:import java.util.concurrent.Executors)
   (:use [plumbing.core]
+	[clojure.contrib.map-utils :only [deep-merge-with]]
 	[store.api :only [hashmap-bucket bucket-merge-to!
-			  bucket-put bucket-update bucket-sync]]
+			  bucket-put bucket-update bucket-sync
+			  bucket-seq]]
 	[work.core :only [available-processors seq-work
-			  map-work schedule-work]]
+			  map-work schedule-work shutdown-now]]
 	[work.queue :only [local-queue]]))
 
-(defn- channel-as-lazy-seq
-  "ch is a fn you call to get an item (no built-in timeout, use with-timeout).
-   When the ch is exhausted it returns :eof.
-
-   This fn returns a lazy sequence from the channel."
-  [ch]
-  (lazy-seq
-   (let [x (ch)]
-     (when (not= x :eof)
-       (cons x (channel-as-lazy-seq ch))))))
-
-(defn channel-from-seq
-  [xs]
-  (let [q (local-queue xs)]
-    (fn []
-      (if (.isEmpty q)
-	:eof
-	((with-ex (constantly :eof) #(.remove q)))))))
-
-(defn ordered-agg
-  "returns an aggregator which in parallel executes
-   fetch on elements of a channel (see above) and
-   performs reduce on the resulting lazy sequence.
-
-   Essentially, the map-reduce function on data
-   with the sequence ordering constraint."
-  ([fetch agg &
-    {:keys [num-threads]
-     :or {num-threads (available-processors)}}]
-     (fn [ch]
-       (->> (channel-as-lazy-seq ch)
-	    (map-work fetch num-threads)
-	    (reduce agg)))))
-
-(defn- abelian-worker
-  [ch fetch agg pingback]
-  (fn []
-    (loop [v nil]
-      (let [elem (-->> [] ch
-		       (with-timeout 10)
-		       (with-ex (constantly :eof)))]
-	(if (= elem :eof)
-	  (pingback v)
-	  (recur (agg v (fetch elem))))))))
-
-(defn abelian-agg
-  "returns an aggregator which in parallel executes
-   fetches and aggs results. The order of agg is not
-   guranteed so operation should be commutativie + associative."
-  [fetch agg &
-   {:keys [num-threads]
-    :or {num-threads (available-processors)}}]
-  (fn [ch]
-    (let [res (atom nil)
-	  pingback (fn [v] (swap! res agg v))]
-      (seq-work (repeatedly num-threads #(abelian-worker ch fetch agg pingback))
-	    num-threads)
-      @res)))
+(defprotocol IAgg
+  (agg [this v][this k v])
+  (agg-inc [this][this v]))
 
 (defn with-flush [bucket merge flush? secs]
   (let [mem-bucket (java.util.concurrent.atomic.AtomicReference.
@@ -80,3 +28,42 @@
           (bucket-update [this k f]
 			 (bucket-update (.get mem-bucket) k f)))
       pool]))
+
+(defn +maps [ms]
+  (apply
+   deep-merge-with
+   + (remove nil? ms)))
+
+(defn agg-bucket [bucket merge done]
+  (let [counter (java.util.concurrent.atomic.AtomicInteger.)
+	do-and-check (fn [f]
+		       (try (f)
+			    (finally
+			     (when
+				 (<= (.decrementAndGet counter) 0)
+			       (done bucket)))))]
+    (reify IAgg
+	     (agg [this k v]
+			    (do-and-check
+			     #(bucket-update
+			       bucket k (fn [x] (merge [x v])))))
+	     (agg [this v]
+			    (do-and-check
+			     #(bucket-merge-to!
+			       (fn [k & args] (merge args))
+			       v bucket)))
+	     (agg-inc [this v] (.addAndGet counter v))
+	     (agg-inc [this] (.incrementAndGet counter)))))
+
+(defn mem-agg [merge]
+  (agg-bucket (hashmap-bucket) merge
+	      #(into {} (bucket-seq %))))
+
+(defn agg-work
+  [f num-threads aggregator tasks]
+  (let [tasks (seq tasks)
+	pool (Executors/newFixedThreadPool num-threads)]
+    (agg-inc aggregator (int (count tasks)))
+    (doseq [t tasks :let [work #(f t)]]	       
+      (.submit pool ^java.lang.Runnable work))
+    (shutdown-now pool)))

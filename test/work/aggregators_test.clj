@@ -1,27 +1,30 @@
 (ns work.aggregators-test
   (:use clojure.test
+	clojure.contrib.map-utils
         work.aggregators
 	store.api))
 
-(defn commutativie-agg-test [mk-agg]
-  (let [sum-agg (mk-agg identity (fnil + 0))
-	max-agg (mk-agg identity (fnil max Double/NEGATIVE_INFINITY))
-	min-agg (mk-agg identity (fnil min Double/POSITIVE_INFINITY))]
-    (is (= (sum-agg (channel-from-seq [1 2 3])) 6))
-    (is (= (max-agg (channel-from-seq [1 2 3])) 3))
-    (is (= (min-agg (channel-from-seq [1 2 3])) 1))))
-
-(deftest abelian-agg-test
-  (commutativie-agg-test abelian-agg))
-
-(deftest ordered-agg-test
-  (commutativie-agg-test ordered-agg)
-  (let [sub-agg (ordered-agg identity (fnil - 0))]
-    (is (= (sub-agg (channel-from-seq [1 2 3])) -4))))
-
 (deftest with-flush-test
   (let [b (hashmap-bucket)
-	[b-flush pool] (with-flush b (fn [x y] y) (constantly true) 1)]
+	[b-flush pool] (with-flush b (fn [x y] y)
+			 (constantly true) 1)]
     (bucket-put b :k :v)
     (Thread/sleep 3000)
     (is (= (bucket-get b :k) :v))))
+
+(deftest agg-bucket-test
+  (let [agg-b (agg-bucket
+	       (hashmap-bucket)
+	       +maps
+	       #(is (= (bucket-get % :k) {:a 1})))]
+    (is (= 1  (agg-inc agg-b)))
+    (agg agg-b :k {:a 1})
+    (Thread/sleep 3000))
+  (let [agg-b2 (agg-bucket
+	       (hashmap-bucket)
+	       +maps
+	       #(is (= (into {} (bucket-seq %)) {:a 3})))]
+    (is (= 2 (agg-inc agg-b2 2)))
+    (agg agg-b2 {:a 1})
+    (agg agg-b2 {:a 2})
+    (Thread/sleep 3000)))

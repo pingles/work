@@ -97,7 +97,6 @@
 	     num-threads
 	     xs))))
 
-
 ;;Steps toward pulling out composiiton strategy.  need to do same for input so calcs ca be push through or pill through.
 (defn async [f task out] (f task out))
 (defn sync [f task out] (out (f task)))
@@ -115,8 +114,6 @@
     (if-let [task (in)]
       (exec f task out)
       (yield)))))
-
-
 
 ;;TODO; unable to shutdown pool. seems recursive fns are not responding to interrupt. http://download.oracle.com/javase/tutorial/essential/concurrency/interrupt.html
 ;;TODO: use another thread to check futures and make sure workers don't fail, don't hang, and call for work within their time limit?
@@ -147,8 +144,8 @@
 (defn do-work
   ([f num-threads tasks]
      (let [tasks (seq tasks)
-	   in (local-queue tasks)
-	   latch (java.util.concurrent.CountDownLatch. (int (count tasks)))
+	   latch (java.util.concurrent.CountDownLatch.
+		  (int (count tasks)))
 	   pool (Executors/newFixedThreadPool num-threads)]
        (doseq [t tasks :let [work (fn []
 				    (try
@@ -167,6 +164,3 @@
        @res))
   ([f threads xs] (reduce-work f nil threads xs))
   ([f xs] (reduce-work f (available-processors) xs)))
-
-
-
