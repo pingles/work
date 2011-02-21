@@ -20,9 +20,9 @@
   where n is specified by the rate arg, or supply a vector of fn-rate tuples to schedule a bunch of fns at once."
   ([f rate]
      (let [pool (Executors/newSingleThreadScheduledExecutor)]
-     (.scheduleAtFixedRate
-      pool (with-log f) (long 0) (long rate) TimeUnit/SECONDS)
-     pool))
+       (.scheduleAtFixedRate
+        pool (with-log f) (long 0) (long rate) TimeUnit/SECONDS)
+       pool))
   ([jobs]
      (let [pool (Executors/newSingleThreadScheduledExecutor)] 
        (doall (for [[f rate] jobs]
@@ -144,20 +144,24 @@
     (dotimes [_ threads] (.submit pool f))     
     pool))
 
+;; remove let binding of local tasks
+
+;; when not empty tasks
+
 (defn do-work
   ([f num-threads tasks]
-     (let [tasks (seq tasks)
-	   in (local-queue tasks)
-	   latch (java.util.concurrent.CountDownLatch. (int (count tasks)))
-	   pool (Executors/newFixedThreadPool num-threads)]
-       (doseq [t tasks :let [work (fn []
-				    (try
-				      (f t)
-				      (finally
-				        (.countDown latch))))]]	       
-	 (.submit pool ^java.lang.Runnable work))
-       (.await latch)
-       (shutdown-now pool)))
+     (when-not (empty? tasks)
+       (let [in (local-queue tasks)
+             latch (java.util.concurrent.CountDownLatch. (int (count tasks)))
+             pool (Executors/newFixedThreadPool num-threads)]
+         (doseq [t tasks :let [work (fn []
+                                      (try
+                                        (f t)
+                                        (finally
+                                         (.countDown latch))))]]	       
+           (.submit pool ^java.lang.Runnable work))
+         (.await latch)
+         (shutdown-now pool))))
   ([f tasks] (do-work f (available-processors) tasks)))
 
 (defn reduce-work
