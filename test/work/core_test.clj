@@ -20,16 +20,18 @@
 
 (deftest do-work-test
   (let [input-data (range 1 101 1)
-	response-q (q/local-queue)
-	pool (work/do-work #(q/offer response-q (* 10 %))
-			   		   10
-		   input-data)]
-  (is (= (range 10 1010 10)
-	 (wait-for-complete-results response-q (count input-data))))))
+        response-q (q/local-queue)
+        pool (work/do-work #(q/offer response-q (* 10 %))
+                           10
+                           input-data)]
+    (is (= (range 10 1010 10)
+           (wait-for-complete-results response-q (count input-data))))))
 
 (deftest reduce-work-test
   (is (= (range 10)
-	 (sort (work/reduce-work conj (range 10))))))
+         (sort (work/reduce-work conj (range 10)))))
+  (is (= nil
+         (work/reduce-work + (list)))))
 
 (deftest queue-work-test
   (let [input-data (range 1 101 1)
