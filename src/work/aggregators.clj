@@ -2,7 +2,7 @@
   (:use [plumbing.core]
 	[store.api :only [hashmap-bucket bucket-merge-to! bucket-close
 			  bucket-put bucket-update bucket-sync
-			  as-mergable]]
+			  as-mergable bucket-get]]
 	[work.core :only [available-processors seq-work
 			  map-work schedule-work]]
 	[work.queue :only [local-queue]]))
@@ -76,11 +76,15 @@
 	        #(when (flush?)
                      (do-flush!))
                 secs)]
-     [(reify store.api.IWriteBucket
-          (bucket-update [this k f]
-			 (bucket-update (.get mem-bucket) k f))
-	  (bucket-sync [this]
-		       (do-flush!)
-		       (silent bucket-sync bucket))
-	  (bucket-close [this] (bucket-close bucket)))
-      pool]))
+    [(reify
+      store.api.IReadBucket
+      (bucket-get [this k] (bucket-get bucket k))
+      
+      store.api.IWriteBucket
+      (bucket-update [this k f]
+		     (bucket-update (.get mem-bucket) k f))
+      (bucket-sync [this]
+		   (do-flush!)
+		   (silent bucket-sync bucket))
+      (bucket-close [this] (bucket-close bucket)))
+     pool]))
