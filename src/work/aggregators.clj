@@ -1,7 +1,8 @@
 (ns work.aggregators
   (:use [plumbing.core]
 	[store.api :only [hashmap-bucket bucket-merge-to! bucket-close
-			  bucket-put bucket-update bucket-sync]]
+			  bucket-put bucket-update bucket-sync
+			  as-mergable]]
 	[work.core :only [available-processors seq-work
 			  map-work schedule-work]]
 	[work.queue :only [local-queue]]))
@@ -66,10 +67,11 @@
       @res)))
 
 (defn with-flush [bucket merge flush? secs]
-  (let [mem-bucket (java.util.concurrent.atomic.AtomicReference.
+  (let [mergable-bucket (as-mergable bucket merge)
+	mem-bucket (java.util.concurrent.atomic.AtomicReference.
 		    (hashmap-bucket))
 	do-flush! #(let [cur (.getAndSet mem-bucket (hashmap-bucket))]
-		     (bucket-merge-to! merge cur bucket))
+		     (bucket-merge-to! cur mergable-bucket))
 	pool (schedule-work
 	        #(when (flush?)
                      (do-flush!))
