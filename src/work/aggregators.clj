@@ -3,7 +3,8 @@
   (:use [plumbing.core]
 	[clojure.contrib.map-utils :only [deep-merge-with]]
 	[store.api :only [hashmap-bucket bucket-merge-to! bucket-close
-			  bucket-put bucket-update bucket-sync bucket-seq]]
+			  bucket-put bucket-update bucket-sync bucket-seq
+			  with-merge default-bucket-merge]]
 	[work.core :only [available-processors seq-work
 			  map-work schedule-work shutdown-now]]
 	[work.queue :only [local-queue]]))
@@ -12,19 +13,20 @@
   (agg [this v][this k v])
   (agg-inc [this][this v]))
 
-(defn with-flush [bucket merge flush? secs]
-  (let [mem-bucket (java.util.concurrent.atomic.AtomicReference.
-		    (hashmap-bucket))
+(defn with-flush [bucket merge-fn flush? secs]
+  (let [mem-bucket (java.util.concurrent.atomic.AtomicReference. (hashmap-bucket))		
 	do-flush! #(let [cur (.getAndSet mem-bucket (hashmap-bucket))]
-		     (bucket-merge-to! merge cur bucket))
+		     (bucket-merge-to! cur
+		       (with-merge bucket merge-fn)))
 	pool (schedule-work
 	      #(when (flush?)
 		 (do-flush!))
 	      secs)]
     [(reify store.api.IWriteBucket
-	    (bucket-update [this k f]
-			   (bucket-update
-			    (.get mem-bucket) k f))
+	    (bucket-merge [this k v]
+			   (default-bucket-merge
+			     (.get mem-bucket) merge-fn
+			     k v))
      (bucket-sync [this]
 		  (do-flush!)
 		  (silent bucket-sync bucket))
@@ -52,8 +54,9 @@
 	     (agg [this v]
 			    (do-and-check
 			     #(bucket-merge-to!
-			       (fn [k & args] (merge args))
-			       v bucket)))
+			       v
+			       (with-merge bucket
+				 (fn [k & args] (merge args))))))
 	     (agg-inc [this v] (.addAndGet counter v))
 	     (agg-inc [this] (.incrementAndGet counter)))))
 
