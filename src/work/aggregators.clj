@@ -26,7 +26,7 @@
 	  (reify store.api.IWriteBucket
 		 (bucket-merge [this k v]
 		    (default-bucket-merge
-		      (.get mem-bucket) merge-fn k v))		      
+		      (.get mem-bucket) (partial merge-fn k) k v))		      
 		 (bucket-sync [this]
 		    (do-flush!)
 		    (silent bucket-sync bucket))
