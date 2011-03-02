@@ -5,9 +5,8 @@
 	store.api))
 
 (deftest with-flush-test
-  (let [b (hashmap-bucket)
-	[b-flush pool] (with-flush b (fn [_ x y] y)
-			 (constantly true) 1)]
+  (let [b (with-merge (hashmap-bucket) (fn [_ x y] y))
+	[b-flush pool] (with-flush b  (constantly true) 1)]			 
     (bucket-put b :k :v)
     (Thread/sleep 3000)
     (is (= (bucket-get b :k) :v))

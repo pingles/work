@@ -2,9 +2,7 @@
   (:import java.util.concurrent.Executors)
   (:use [plumbing.core]
 	[clojure.contrib.map-utils :only [deep-merge-with]]
-	[store.api :only [hashmap-bucket bucket-merge-to! bucket-close
-			  bucket-put bucket-get bucket-update bucket-sync bucket-seq
-			  with-merge default-bucket-merge]]
+	store.api
 	[work.core :only [available-processors seq-work
 			  map-work schedule-work shutdown-now]]
 	[work.queue :only [local-queue]]))
@@ -13,11 +11,12 @@
   (agg [this v][this k v])
   (agg-inc [this][this v]))
 
-(defn with-flush [bucket merge-fn flush? secs]
+(defn with-flush [bucket flush? secs]
+  "returns a bucket which accumulated (merges) updates using the bucket-merge fn from bucket and periodically
+   merges into the underlying bucket."
   (let [mem-bucket (java.util.concurrent.atomic.AtomicReference. (hashmap-bucket))
 	do-flush! #(let [cur (.getAndSet mem-bucket (hashmap-bucket))]
-		     (bucket-merge-to! cur
-		       (with-merge bucket merge-fn)))
+		     (bucket-merge-to! cur bucket))
 	pool (schedule-work
 	      #(when (flush?)
 		 (do-flush!))
@@ -26,7 +25,7 @@
 	  (reify store.api.IWriteBucket
 		 (bucket-merge [this k v]
 		    (default-bucket-merge
-		      (.get mem-bucket) (partial merge-fn k) k v))		      
+		      (.get mem-bucket) (partial (bucket-merger bucket) k) k v))		      
 		 (bucket-sync [this]
 		    (do-flush!)
 		    (silent bucket-sync bucket))
@@ -35,7 +34,7 @@
 		 store.api.IReadBucket
 		 (bucket-get [this k]
 		    (bucket-get bucket k)))]
-    [flush-bucket  pool]))
+    [flush-bucket pool]))
 
 (defn +maps [ms]
   (apply
