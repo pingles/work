@@ -3,7 +3,7 @@
   (:use [plumbing.core]
 	[clojure.contrib.map-utils :only [deep-merge-with]]
 	[store.api :only [hashmap-bucket bucket-merge-to! bucket-close
-			  bucket-put bucket-update bucket-sync bucket-seq
+			  bucket-put bucket-get bucket-update bucket-sync bucket-seq
 			  with-merge default-bucket-merge]]
 	[work.core :only [available-processors seq-work
 			  map-work schedule-work shutdown-now]]
@@ -27,10 +27,15 @@
 			   (default-bucket-merge
 			     (.get mem-bucket) merge-fn
 			     k v))
-     (bucket-sync [this]
-		  (do-flush!)
-		  (silent bucket-sync bucket))
-     (bucket-close [this] (bucket-close bucket)))
+	    (bucket-sync [this]
+			 (do-flush!)
+			 (silent bucket-sync bucket))
+	    (bucket-close [this] (bucket-close bucket))
+
+	    store.api.IReadBucket
+	    (bucket-get [this k]
+		(merge-fn (bucket-get bucket k)
+			  (bucket-get (.get mem-bucket) k))))
     pool]))
 
 (defn +maps [ms]
