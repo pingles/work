@@ -1,6 +1,6 @@
 (defproject work "0.2.5-SNAPSHOT"
   :description "Clojure workers."
-  :url "http://github.com/clj-sys/work"
+  :url "http://github.com/getwoven/work"
   :dependencies [[org.clojure/clojure "1.2.0"]
                  [org.clojure/clojure-contrib "1.2.0"]
                  [clj-serializer "0.1.1"]

@@ -66,25 +66,28 @@
 	    num-threads)
       @res)))
 
-(defn with-flush [bucket merge flush? secs]
-  (let [mergable-bucket (as-mergable bucket merge)
-	mem-bucket (java.util.concurrent.atomic.AtomicReference.
-		    (hashmap-bucket))
+(defn with-flush [bucket merge-fn flush? secs]
+  (let [mem-bucket (java.util.concurrent.atomic.AtomicReference.
+		    (hashmap-bucket))	
 	do-flush! #(let [cur (.getAndSet mem-bucket (hashmap-bucket))]
-		     (bucket-merge-to! cur mergable-bucket))
+		     (bucket-merge-to! cur (as-mergable bucket merge-fn)))
 	pool (schedule-work
 	        #(when (flush?)
                      (do-flush!))
                 secs)]
     [(reify
       store.api.IReadBucket
-      (bucket-get [this k] (bucket-get bucket k))
-      
+      (bucket-get [this k]
+	 (bucket-get bucket k))
+
+      store.api.IMergableBucket
+      (bucket-merge [this k v]
+        (bucket-update mem-bucket k (fn [v-to] (merge v-to v))))
+
       store.api.IWriteBucket
-      (bucket-update [this k f]
-		     (bucket-update (.get mem-bucket) k f))
       (bucket-sync [this]
-		   (do-flush!)
-		   (silent bucket-sync bucket))
+	(do-flush!)
+	(silent bucket-sync bucket))
+
       (bucket-close [this] (bucket-close bucket)))
      pool]))
