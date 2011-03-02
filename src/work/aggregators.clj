@@ -21,21 +21,21 @@
 	pool (schedule-work
 	      #(when (flush?)
 		 (do-flush!))
-	      secs)]
-    [(reify store.api.IWriteBucket
-	    (bucket-merge [this k v]
-			   (default-bucket-merge
-			     (.get mem-bucket) merge-fn
-			     k v))
-	    (bucket-sync [this]
-			 (do-flush!)
-			 (silent bucket-sync bucket))
-	    (bucket-close [this] (bucket-close bucket))
-
-	    store.api.IReadBucket
-	    (bucket-get [this k]
-			(bucket-get bucket k)))
-    pool]))
+	      secs)
+	flush-bucket
+	  (reify store.api.IWriteBucket
+		 (bucket-merge [this k v]
+		    (default-bucket-merge
+		      (.get mem-bucket) merge-fn k v))		      
+		 (bucket-sync [this]
+		    (do-flush!)
+		    (silent bucket-sync bucket))
+		 (bucket-close [this] (bucket-close bucket))
+		 
+		 store.api.IReadBucket
+		 (bucket-get [this k]
+		    (bucket-get bucket k)))]
+    [flush-bucket  pool]))
 
 (defn +maps [ms]
   (apply
