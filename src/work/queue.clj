@@ -1,8 +1,7 @@
 (ns work.queue
   (:refer-clojure :exclude [peek])
-  (:use work.message plumbing.core plumbing.serialize)
-  (:import (java.util.concurrent LinkedBlockingQueue)))                                 
-
+  (:use plumbing.core plumbing.serialize)
+  (:import (java.util.concurrent LinkedBlockingQueue)))                   
 (defprotocol Queue
   (poll [q] "poll")
   (alive? [this] "is the queue alive?")
@@ -37,10 +36,10 @@
   "decorates queue with serializing input and output to and from bytes."
   ([serialize-impl queue]
      (with-adapter
-       (partial freeze serialize-impl)
-       (partial thaw serialize-impl)
+       (partial serialize serialize-impl)
+       (partial deserialize serialize-impl)
        queue))
-  ([q] (with-serialize default-serializer q)))
+  ([q] (with-serialize (string-serializer) q)))
 
 (defn local-queue
   "return LinkedBlockingQueue implementation

@@ -1,10 +1,11 @@
 (ns work.core-test
   (:use clojure.test
 	work.graph
-	[plumbing.core :only [retry wait-until]])
- (:require [work.core :as work])
- (:require [work.message :as msg])
- (:require [work.queue :as q]))
+	[plumbing.core :only [retry wait-until]]
+	[plumbing.serialize :only [send-clj clj-worker
+				   send-json json-worker]])
+  (:require [work.core :as work])
+  (:require [work.queue :as q]))
 
 (deftest map-work-test
   (is (= (range 10 1010 10)
@@ -95,14 +96,14 @@
 
 (deftest clj-fns-over-the-queue
   (let [input-data (range 1 101 1)
-	request-q (q/local-queue (map #(msg/send-clj %1 %2)
+	request-q (q/local-queue (map #(send-clj %1 %2)
 					 (repeat #'times10)
 					 input-data))
 	response-q (q/local-queue)
 	pool (future
 	      (work/queue-work
 	       (work/work (fn []
-	       {:f msg/clj-worker
+	       {:f clj-worker
 	       :in #(q/poll request-q)
 	       :out #(q/offer response-q %) }))
 	       10))]
@@ -111,7 +112,7 @@
 
 (deftest json-fns-over-the-queue
   (let [input-data (range 1 101 1)
-	request-q (q/local-queue (map #(msg/send-json %1 %2)
+	request-q (q/local-queue (map #(send-json %1 %2)
 				      (repeat #'times10)
 				      input-data))
 	response-q (q/local-queue)
@@ -119,7 +120,7 @@
 	      (work/queue-work
 	       (work/work
 		(fn []
-		  {:f msg/json-worker
+		  {:f json-worker
 		   :in #(q/poll request-q)
 		   :out #(q/offer response-q %) }))
 	       10))]

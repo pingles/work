@@ -3,7 +3,6 @@
   (:require [clj-json [core :as json]]
             [clojure.contrib.logging :as log])
   (:use work.queue
-        work.message
         clj-serializer.core
         [clojure.contrib.def :only [defvar]]
         [plumbing.core :only [print-all with-ex with-log with-accumulator]])
