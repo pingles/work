@@ -2,9 +2,8 @@
   (:import java.util.concurrent.Executors)
   (:use [plumbing.core]
 	[clojure.contrib.map-utils :only [deep-merge-with]]
-	[store.api :only [hashmap-bucket bucket-merge-to!
-			  bucket-put bucket-update bucket-sync
-			  bucket-seq]]
+	[store.api :only [hashmap-bucket bucket-merge-to! bucket-close
+			  bucket-put bucket-update bucket-sync bucket-seq]]
 	[work.core :only [available-processors seq-work
 			  map-work schedule-work shutdown-now]]
 	[work.queue :only [local-queue]]))
@@ -16,18 +15,21 @@
 (defn with-flush [bucket merge flush? secs]
   (let [mem-bucket (java.util.concurrent.atomic.AtomicReference.
 		    (hashmap-bucket))
-	pool (schedule-work #(when (flush?)
-                     (let [cur (.get mem-bucket)]
-                       (.set mem-bucket (hashmap-bucket))
-                       (bucket-merge-to! merge cur bucket))
-                     (System/gc))
-                secs)]
-     [(reify store.api.IWriteBucket
-          (bucket-put [this k v]
-                      (bucket-put (.get mem-bucket) k v))
-          (bucket-update [this k f]
-			 (bucket-update (.get mem-bucket) k f)))
-      pool]))
+	do-flush! #(let [cur (.getAndSet mem-bucket (hashmap-bucket))]
+		     (bucket-merge-to! merge cur bucket))
+	pool (schedule-work
+	      #(when (flush?)
+		 (do-flush!))
+	      secs)]
+    [(reify store.api.IWriteBucket
+	    (bucket-update [this k f]
+			   (bucket-update (.get mem-bucket) k f)))
+     (bucket-update (.get mem-bucket) k f)
+     (bucket-sync [this]
+		  (do-flush!)
+		  (silent bucket-sync bucket))
+     (bucket-close [this] (bucket-close bucket)))
+    pool]))
 
 (defn +maps [ms]
   (apply
@@ -41,7 +43,7 @@
 			    (finally
 			     (when
 				 (<= (.decrementAndGet counter) 0)
-			       (done bucket)))))]
+ 			       (done bucket)))))]
     (reify IAgg
 	     (agg [this k v]
 			    (do-and-check

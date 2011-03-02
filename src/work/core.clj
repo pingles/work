@@ -20,9 +20,9 @@
   where n is specified by the rate arg, or supply a vector of fn-rate tuples to schedule a bunch of fns at once."
   ([f rate]
      (let [pool (Executors/newSingleThreadScheduledExecutor)]
-     (.scheduleAtFixedRate
-      pool (with-log f) (long 0) (long rate) TimeUnit/SECONDS)
-     pool))
+       (.scheduleAtFixedRate
+        pool (with-log f) (long 0) (long rate) TimeUnit/SECONDS)
+       pool))
   ([jobs]
      (let [pool (Executors/newSingleThreadScheduledExecutor)] 
        (doall (for [[f rate] jobs]
@@ -143,6 +143,7 @@
 
 (defn do-work
   ([f num-threads tasks]
+     (when-not (empty? tasks)
      (let [tasks (seq tasks)
 	   latch (java.util.concurrent.CountDownLatch.
 		  (int (count tasks)))
@@ -154,7 +155,7 @@
 				        (.countDown latch))))]]	       
 	 (.submit pool ^java.lang.Runnable work))
        (.await latch)
-       (shutdown-now pool)))
+       (shutdown-now pool))))
   ([f tasks] (do-work f (available-processors) tasks)))
 
 (defn reduce-work
