@@ -1,10 +1,7 @@
 (ns work.aggregators
   (:use [plumbing.core]
-	[store.api :only [hashmap-bucket bucket-merge-to! bucket-close
-			  bucket-put bucket-update bucket-sync
-			  as-mergable bucket-get]]
-	[work.core :only [available-processors seq-work
-			  map-work schedule-work]]
+	store.api
+	[work.core :only [available-processors seq-work map-work schedule-work]]			  
 	[work.queue :only [local-queue]]))
 
 (defn- channel-as-lazy-seq
@@ -67,27 +64,17 @@
       @res)))
 
 (defn with-flush [bucket merge-fn flush? secs]
-  (let [mem-bucket (java.util.concurrent.atomic.AtomicReference.
-		    (hashmap-bucket))	
+  (let [mem-bucket (java.util.concurrent.atomic.AtomicReference. (hashmap-bucket))		
 	do-flush! #(let [cur (.getAndSet mem-bucket (hashmap-bucket))]
-		     (bucket-merge-to! cur (as-mergable bucket merge-fn)))
+		     (bucket-merge-to! cur
+		       (reify store.api.IMergableBucket
+			      (bucket-merge [this k v]
+					    (default-bucket-merge bucket merge-fn v)))))
 	pool (schedule-work
-	        #(when (flush?)
-                     (do-flush!))
+	        #(when (flush?) (do-flush!))                     
                 secs)]
     [(reify
-      store.api.IReadBucket
-      (bucket-get [this k]
-	 (bucket-get bucket k))
-
-      store.api.IMergableBucket
+      store.api.IMergableBucket     
       (bucket-merge [this k v]
-        (bucket-update mem-bucket k (fn [v-to] (merge v-to v))))
-
-      store.api.IWriteBucket
-      (bucket-sync [this]
-	(do-flush!)
-	(silent bucket-sync bucket))
-
-      (bucket-close [this] (bucket-close bucket)))
-     pool]))
+		    (default-bucket-merge (.get mem-bucket) merge-fn v)))
+     pool]))     
