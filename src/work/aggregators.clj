@@ -14,7 +14,7 @@
   (agg-inc [this][this v]))
 
 (defn with-flush [bucket merge-fn flush? secs]
-  (let [mem-bucket (java.util.concurrent.atomic.AtomicReference. (hashmap-bucket))		
+  (let [mem-bucket (java.util.concurrent.atomic.AtomicReference. (hashmap-bucket))
 	do-flush! #(let [cur (.getAndSet mem-bucket (hashmap-bucket))]
 		     (bucket-merge-to! cur
 		       (with-merge bucket merge-fn)))
@@ -34,8 +34,7 @@
 
 	    store.api.IReadBucket
 	    (bucket-get [this k]
-		(merge-fn (bucket-get bucket k)
-			  (bucket-get (.get mem-bucket) k))))
+			(bucket-get bucket k)))
     pool]))
 
 (defn +maps [ms]
