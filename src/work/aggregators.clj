@@ -3,7 +3,7 @@
   (:use [plumbing.core]
 	[clojure.contrib.map-utils :only [deep-merge-with]]
 	store.api
-	[work.core :only [available-processors seq-work
+	[work.core :only [available-processors seq-work do-work
 			  map-work schedule-work shutdown-now]]
 	[work.queue :only [local-queue]]))
 
@@ -78,3 +78,10 @@
     (doseq [t tasks :let [work #(f t)]]	       
       (.submit pool ^java.lang.Runnable work))
     (shutdown-now pool)))
+
+(defn map-reduce
+  ([map-fn reduce-fn threads init xs]
+     (let [res (atom init)
+	   accum-res (fn [t] (swap! res reduce-fn t))]
+       (do-work (comp accum-res map-fn) threads xs)
+       @res)))

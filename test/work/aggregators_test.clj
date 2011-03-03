@@ -28,3 +28,7 @@
     (agg agg-b2 {:a 1})
     (agg agg-b2 {:a 2})
     (Thread/sleep 3000)))
+
+(deftest map-reduce-test
+  (is (= (reduce + (map inc (range 100)))
+         (map-reduce inc + 10 0 (range 100)))))
