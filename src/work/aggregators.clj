@@ -11,34 +11,6 @@
   (agg [this v][this k v])
   (agg-inc [this][this v]))
 
-(defn with-flush 
-  "returns a bucket which accumulated (merges) updates using the merge-fn on an in-memory hashmap-bucket. These
-   partial results are merged with the underlying bucket (assumed to implement bucket-merge). If no merge-fn
-   is passed in, uses bucket-merger function on underlying bucket."
-  ([bucket merge-fn flush? secs]
-     (let [mem-bucket (java.util.concurrent.atomic.AtomicReference. (hashmap-bucket))
-	   do-flush! #(let [cur (.getAndSet mem-bucket (hashmap-bucket))]
-			(bucket-merge-to! cur bucket))
-	   pool (schedule-work
-		 #(when (flush?)
-		    (do-flush!))
-		 secs)
-	   flush-bucket
-	   (reify store.api.IWriteBucket
-		  (bucket-merge [this k v]
-				(default-bucket-merge
-				  (.get mem-bucket) (partial merge-fn k) k v))		      
-		  (bucket-sync [this]
-			       (do-flush!)
-			       (silent bucket-sync bucket))
-		  (bucket-close [this] (bucket-close bucket))
-		 
-		  store.api.IReadBucket
-		  (bucket-get [this k]
-			      (bucket-get bucket k)))]
-       [flush-bucket pool]))
-  ([bucket flush? secs] (with-flush bucket (bucket-merger bucket) flush? secs)))
-
 (defn +maps [ms]
   (apply
    deep-merge-with

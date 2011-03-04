@@ -4,14 +4,6 @@
         work.aggregators
 	store.api))
 
-(deftest with-flush-test
-  (let [b (with-merge (hashmap-bucket) (fn [_ x y] y))
-	[b-flush pool] (with-flush b  (constantly true) 1)]			 
-    (bucket-put b :k :v)
-    (Thread/sleep 3000)
-    (is (= (bucket-get b :k) :v))
-    (is (= (bucket-get b-flush :k) :v))))
-
 (deftest agg-bucket-test
   (let [agg-b (agg-bucket
 	       (hashmap-bucket)
