@@ -17,21 +17,23 @@
   (let [mem-bucket (java.util.concurrent.atomic.AtomicReference. (hashmap-bucket))		
 	do-flush! #(let [cur (.getAndSet mem-bucket (hashmap-bucket))]
 		     (bucket-merge-to! cur
-		       (with-merge bucket merge-fn)))
+				       (with-merge bucket merge-fn)))
 	pool (schedule-work
 	      #(when (flush?)
 		 (do-flush!))
 	      secs)]
     [(reify store.api.IWriteBucket
 	    (bucket-merge [this k v]
-			   (default-bucket-merge
-			     (.get mem-bucket) merge-fn
-			     k v))
-     (bucket-sync [this]
-		  (do-flush!)
-		  (silent bucket-sync bucket))
-     (bucket-close [this] (bucket-close bucket)))
-    pool]))
+			  (default-bucket-merge
+			    (.get mem-bucket) merge-fn
+			    k v))
+	    (bucket-update [this k f]
+			   (bucket-update (.get mem-bucket) k f))
+	    (bucket-sync [this]
+			 (do-flush!)
+			 (silent bucket-sync bucket))
+	    (bucket-close [this] (bucket-close bucket)))
+     pool]))
 
 (defn +maps [ms]
   (apply
@@ -47,18 +49,18 @@
 				 (<= (.decrementAndGet counter) 0)
  			       (done bucket)))))]
     (reify IAgg
-	     (agg [this k v]
-			    (do-and-check
-			     #(bucket-update
-			       bucket k (fn [x] (merge [x v])))))
-	     (agg [this v]
-			    (do-and-check
-			     #(bucket-merge-to!
-			       v
-			       (with-merge bucket
-				 (fn [k & args] (merge args))))))
-	     (agg-inc [this v] (.addAndGet counter v))
-	     (agg-inc [this] (.incrementAndGet counter)))))
+	   (agg [this k v]
+		(do-and-check
+		 #(bucket-update
+		   bucket k (fn [x] (merge [x v])))))
+	   (agg [this v]
+		(do-and-check
+		 #(bucket-merge-to!
+		   v
+		   (with-merge bucket
+		     (fn [k & args] (merge args))))))
+	   (agg-inc [this v] (.addAndGet counter v))
+	   (agg-inc [this] (.incrementAndGet counter)))))
 
 (defn mem-agg [merge]
   (agg-bucket (hashmap-bucket) merge
