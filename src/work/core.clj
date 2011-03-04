@@ -164,3 +164,5 @@
        @res))
   ([f threads xs] (reduce-work f nil threads xs))
   ([f xs] (reduce-work f (available-processors) xs)))
+
+
