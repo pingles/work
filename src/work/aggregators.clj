@@ -11,28 +11,6 @@
   (agg [this v][this k v])
   (agg-inc [this][this v]))
 
-(defn with-flush [bucket merge-fn flush? secs]
-  (let [mem-bucket (java.util.concurrent.atomic.AtomicReference. (hashmap-bucket))		
-	do-flush! #(let [cur (.getAndSet mem-bucket (hashmap-bucket))]
-		     (bucket-merge-to! cur
-				       (with-merge bucket merge-fn)))
-	pool (schedule-work
-	      #(when (flush?)
-		 (do-flush!))
-	      secs)]
-    [(reify store.api.IWriteBucket
-	    (bucket-merge [this k v]
-			  (default-bucket-merge
-			    (.get mem-bucket) merge-fn
-			    k v))
-	    (bucket-update [this k f]
-			   (bucket-update (.get mem-bucket) k f))
-	    (bucket-sync [this]
-			 (do-flush!)
-			 (silent bucket-sync bucket))
-	    (bucket-close [this] (bucket-close bucket)))
-     pool]))
-
 (defn +maps [ms]
   (apply
    deep-merge-with
