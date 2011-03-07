@@ -7,7 +7,7 @@
                  [clj-sys/plumbing "0.1.3-SNAPSHOT"]
                  [clj-time "0.2.0-SNAPSHOT"]
                  [store "0.2.2-SNAPSHOT"]
-                 [woven/clj-json "0.3.1"]]
+                 [woven/clj-json "0.3.2"]]
   :dev-dependencies [[swank-clojure "1.3.0-SNAPSHOT"]
                      [lein-clojars "0.5.0"]
                      [lein-run "1.0.0"]
