@@ -9,11 +9,11 @@ Work has a theme song. [Let's work.](http://www.youtube.com/watch?v=SGHgGCB-rMc&
 Here is an example of blocking workers.
 
     user> (require '[work.core :as work])
-    user> (work/work  [#(+ 1 2)  #(- 1 2)]  2)
+    user> (work/seq-work  [#(+ 1 2)  #(- 1 2)]  2)
     (3  -1)
-    user> (doc work/work)
+    user> (doc work/seq-work)
     -------------------------
-    work.core/work
+    work.core/seq-work
     ([fns threads])
       takes a seq of fns executes them in parallel on n threads, blocking until all work is done.
 
